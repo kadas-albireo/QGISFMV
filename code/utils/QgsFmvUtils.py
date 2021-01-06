@@ -28,6 +28,7 @@ from qgis.core import (QgsApplication,
 # from subprocess import Popen, PIPE, STARTF_USESHOWWINDOW, STARTUPINFO, check_output, DEVNULL
 import subprocess
 import threading
+import collections
 from queue import Queue, Empty
 
 from osgeo import gdal, osr
@@ -268,6 +269,7 @@ class BufferedMetaReader():
         self.pass_time = pass_time
         self.intervall = intervall
         self._meta = {}
+        self._idx = {}
         self._min_buffer_size = min_buffer_size
         self.klv_index = klv_index
         self._initialize('00:00:00.0000', self._min_buffer_size)
@@ -276,28 +278,68 @@ class BufferedMetaReader():
         self.bufferParalell(start, size)
 
     def _check_buffer(self, start):
-        self.bufferParalell(start, self._min_buffer_size)
+        self.bufferParalell(start, self._min_buffer_size * 2)
 
-    def getSize(self):
-        return len(self._meta)
+    def getSize(self, t):
+        size = 0
+        s_date = datetime.strptime(t, '%H:%M:%S.%f')
+        last_date = None
+        #calculate buffer size ahead of supplied time (contiguous values only).       
+        od = collections.OrderedDict(sorted(self._meta.items()))
+        for ele in od.keys():       
+            c_date = datetime.strptime(ele, '%H:%M:%S.%f')
+            if last_date == None:
+                last_date = c_date
+                continue
+
+            if c_date > s_date:
+                #qgsu.showUserAndLogMessage("", "Comparing: ele:" + ele + " greater than t (as date):" + t + " : yes", onlyLog=True)
+                #qgsu.showUserAndLogMessage("", "c_date:" + c_date.strftime('%H:%M:%S.%f') + " last_date:" + last_date.strftime('%H:%M:%S.%f'), onlyLog=True)
+                delta_millisec = (c_date - last_date).microseconds + (c_date - last_date).seconds * 1000
+                #qgsu.showUserAndLogMessage("", "delta: " + str(delta_millisec), onlyLog=True)
+                if delta_millisec <= self.intervall:
+                    size += 1
+                    qgsu.showUserAndLogMessage("", "Smaller or equal than pass_time:" + str(delta_millisec), onlyLog=True)
+                else:
+                    qgsu.showUserAndLogMessage("", "Greater than pass_time:" + str(delta_millisec), onlyLog=True)
+                    break
+            
+            last_date = c_date            
+            
+        #qgsu.showUserAndLogMessage("Buffer size:" + str(self.getSize(t)), "Buffer size:" + str(self.getSize(t)), onlyLog=False)
+        return size
 
     def bufferParalell(self, start, size):
         start_sec = _time_to_seconds(start)
         start_milisec = int(start_sec * 1000)
-
+        
+        i=0
+        cmds = []
+        p = callBackMetadataThread()
         for k in range(start_milisec, start_milisec + (size * self.intervall), self.intervall):
             cTime = k / 1000.0
             nTime = (k + self.pass_time) / 1000.0
             new_key = _seconds_to_time_frac(cTime)
+
             if new_key not in self._meta:
-                # qgsu.showUserAndLogMessage("QgsFmvUtils", 'buffering: ' + _seconds_to_time_frac(cTime) + " to " + _seconds_to_time_frac(nTime), onlyLog=True)
-                self._meta[new_key] = callBackMetadataThread(cmds=['-i', self.video_path,
-                                                                   '-ss', new_key,
-                                                                   '-to', _seconds_to_time_frac(
-                                                                       nTime),
-                                                                   '-map', '0:d:'+str(self.klv_index),
-                                                                   '-f', 'data', '-'])
-                self._meta[new_key].start()
+                if i > 0:
+                    cmds += ['&&', 'cmd.exe', '/c', 'echo END_WORD', '&&']
+
+                cmds += [ffmpeg_path,
+                        '-i', self.video_path,
+                        '-preset', 'ultrafast',
+                        '-ss', new_key,
+                        '-to', _seconds_to_time_frac(
+                        nTime),
+                        '-map', '0:d:' + str(self.klv_index),
+                        '-f', 'data', '-']
+
+                self._meta[new_key] = p
+                self._idx[new_key] = i
+                i += 1
+
+        p.setCmds(cmds)
+        p.start()
 
     def get(self, t):
         ''' read a value and check the buffer '''
@@ -337,12 +379,16 @@ class BufferedMetaReader():
                 qgsu.showUserAndLogMessage(
                     "", "Meta reader -> get: " + t + " cache: " + new_t + " values not ready yet.", onlyLog=True)
             elif self._meta[new_t].stdout:
-                value = self._meta[new_t].stdout
+                if self._idx[new_t] == 0:
+                    value = self._meta[new_t].stdout.split(b'END_WORD')[self._idx[new_t]]
+                else:
+                    value = self._meta[new_t].stdout.split(b'END_WORD')[self._idx[new_t]][3:]
             else:
                 qgsu.showUserAndLogMessage(
                     "", "Meta reader -> get: " + t + " cache: " + new_t + " values ready but empty.", onlyLog=True)
-
-            self._check_buffer(new_t)
+             
+            if self.getSize(t) < self._min_buffer_size:
+                self._check_buffer(new_t)
         except Exception as e:
             qgsu.showUserAndLogMessage(
                 "", "No value found for: " + t + " rounded: " + new_t + " e:" + str(e), onlyLog=True)
@@ -359,17 +405,24 @@ class BufferedMetaReader():
 class callBackMetadataThread(threading.Thread):
     ''' CallBack metadata in other thread  '''
 
-    def __init__(self, cmds):
+    def __init__(self, cmds = []):
         self.cmds = cmds
         self.p = None
         threading.Thread.__init__(self)
+    
+    def setCmds(self, cmds):
+        self.cmds = cmds
         
     def run(self):
-        self.p = _spawn(self.cmds)
-        print (self.cmds)
+        #self.p = _spawn(self.cmds)
+        self.p =subprocess.Popen(self.cmds, shell=windows, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                         bufsize=0,
+                         close_fds=(not windows))
+        #print (self.cmds)
+        qgsu.showUserAndLogMessage("QgsFmvUtils", "callBackMetadataThread running: " + " ".join(self.cmds), onlyLog=True)
         self.stdout, _ = self.p.communicate()
-        print ("_:" + _)
-        print ("stdout:" + self.stdout)
+        #print ("_:" + _)
+        #print ("stdout:" + self.stdout)
         
 
 

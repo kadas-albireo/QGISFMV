@@ -29,7 +29,7 @@ from qgis.PyQt.QtCore import (QSettings,
                               qVersion,
                               QThread, Qt)
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtWidgets import QAction, QHBoxLayout, QSizePolicy
+from qgis.PyQt.QtWidgets import QAction, QHBoxLayout, QSizePolicy, QTabWidget
 from QGIS_FMV.about.QgsFmvAbout import FmvAbout
 from QGIS_FMV.manager.QgsManager import FmvManager
 from QGIS_FMV.utils.QgsFmvLog import log
@@ -95,7 +95,9 @@ class Fmv:
                                  
         self.actionFMV.setCheckable( True )
         self.iface.addAction(self.actionFMV, self.iface.PLUGIN_MENU, self.iface.CUSTOM_TAB, "&Plugins")
-                
+        
+        self.iface.getRibbonWidget().currentChanged.connect(self.tabChanged)
+        
         #self.iface.registerMainWindowAction(
         #    self.actionFMV, qgsu.SetShortcutForPluginFMV(u"FMV"))
         #self.iface.addToolBarIcon(self.actionFMV)
@@ -110,7 +112,11 @@ class Fmv:
         #    self.actionAbout, qgsu.SetShortcutForPluginFMV(u"FMV About", "Alt+A"))
         #self.iface.addPluginToMenu(QCoreApplication.translate(
         #    "QgsFmv", "Full Motion Video (FMV)"), self.actionAbout)
-
+    
+    def tabChanged(self):
+        self.hideManagerWidget()
+        self.actionFMV.setChecked(False)
+    
     def unload(self):
         ''' Unload Plugin '''
         RemoveAllDrawings()
@@ -179,4 +185,5 @@ class Fmv:
     def hideManagerWidget( self ):
         if self._FMVManager:
             self._FMVManager.hide()
-        self.bottomBar.hide()
+        if self.bottomBar:
+            self.bottomBar.hide()
