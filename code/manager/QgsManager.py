@@ -167,8 +167,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         except Exception:
             None
         self.close()
-        return
-    
+        return   
 
     def openStreamDialog(self):
         ''' Open Stream Dialog '''

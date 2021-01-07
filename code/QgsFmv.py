@@ -62,7 +62,7 @@ class Fmv:
         QSettings().setValue("/qgis/parallel_rendering", True)
         # OpenCL acceleration
         QSettings().setValue("/core/OpenClEnabled", True)
-
+        self._FMVManager = None
         self.plugin_dir = os.path.dirname(__file__)
 
         localeSetting = QSettings().value("locale//userLocale")
@@ -114,18 +114,19 @@ class Fmv:
         #    "QgsFmv", "Full Motion Video (FMV)"), self.actionAbout)
     
     def tabChanged(self):
-        self.hideManagerWidget()
-        self.actionFMV.setChecked(False)
+        if self._FMVManager:
+            #qgsu.showUserAndLogMessage("", "Manager exists, Tab changed, closing.", onlyLog=True)
+            RemoveAllDrawings()
+            self._FMVManager.CloseFMV()
+            self.actionFMV.setChecked(False)
+            self.run_once = False
     
     def unload(self):
         ''' Unload Plugin '''
+        qgsu.showUserAndLogMessage("", "Unloading plugin", onlyLog=True)
         RemoveAllDrawings()
         self.iface.removeAction(self.actionFMV, self.iface.PLUGIN_MENU, self.iface.CUSTOM_TAB, "&Plugins")
-        #self.iface.removePluginMenu(QCoreApplication.translate(
-        #    "QgsFmv", "Full Motion Video (FMV)"), self.actionFMV)
-        #self.iface.removePluginMenu(QCoreApplication.translate(
-        #    "QgsFmv", "Full Motion Video (FMV)"), self.actionAbout)
-        #self.iface.removeToolBarIcon(self.actionFMV)
+        self.iface.getRibbonWidget().currentChanged.disconnect(self.tabChanged)
         log.removeLogging()
 
     def About(self):

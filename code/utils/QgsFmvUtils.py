@@ -3,7 +3,7 @@ from configparser import ConfigParser
 from datetime import datetime
 import inspect
 import json
-from math import atan, tan, sqrt, radians, pi, degrees
+from math import sin, atan, tan, sqrt, radians, pi, degrees
 import os
 from os.path import dirname, abspath
 import platform
@@ -419,7 +419,7 @@ class callBackMetadataThread(threading.Thread):
                          bufsize=0,
                          close_fds=(not windows))
         #print (self.cmds)
-        qgsu.showUserAndLogMessage("QgsFmvUtils", "callBackMetadataThread running: " + " ".join(self.cmds), onlyLog=True)
+        #qgsu.showUserAndLogMessage("QgsFmvUtils", "callBackMetadataThread running: " + " ".join(self.cmds), onlyLog=True)
         self.stdout, _ = self.p.communicate()
         #print ("_:" + _)
         #print ("stdout:" + self.stdout)
@@ -932,6 +932,8 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
     sensorLatitude = packet.SensorLatitude
     sensorLongitude = packet.SensorLongitude
     sensorTrueAltitude = packet.SensorTrueAltitude
+    sensorRelativeElevationAngle = packet.SensorRelativeElevationAngle
+    slantRange = packet.SlantRange
     OffsetLat1 = packet.OffsetCornerLatitudePoint1
     LatitudePoint1Full = packet.CornerLatitudePoint1Full
 
@@ -945,23 +947,33 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
         geotransform = None
         return True
     
-    if hasElevationModel():
-        frameCenterPoint = GetLine3DIntersectionWithDEM(GetSensor(), frameCenterPoint)
-
-    UpdateFrameCenterData(frameCenterPoint, hasElevationModel())
-    UpdateFrameAxisData(packet.ImageSourceSensor, GetSensor(), frameCenterPoint, hasElevationModel())
-    
+    #No framecenter altitude
+    if(frameCenterPoint[2]==None):
+        if(sensorRelativeElevationAngle != None and slantRange != None):
+            frameCenterPoint[2] = sensorTrueAltitude - sin(sensorRelativeElevationAngle) * slantRange
+        else:
+            frameCenterPoint[2] = 0.0
+     
+    #qgsu.showUserAndLogMessage("", "FC Alt:"+str(frameCenterPoint[2]), onlyLog=True)  
+     
     if OffsetLat1 is not None and LatitudePoint1Full is None:
+        if hasElevationModel():
+            frameCenterPoint = GetLine3DIntersectionWithDEM(GetSensor(), frameCenterPoint)
+        
         CornerEstimationWithOffsets(packet)
         if mosaic:
             georeferencingVideo(parent)
 
     elif OffsetLat1 is None and LatitudePoint1Full is None:
+        if hasElevationModel():
+            frameCenterPoint = GetLine3DIntersectionWithDEM(GetSensor(), frameCenterPoint)
+        
         CornerEstimationWithoutOffsets(packet)
         if mosaic:
             georeferencingVideo(parent)
 
     else:
+
         cornerPointUL = [packet.CornerLatitudePoint1Full,
                          packet.CornerLongitudePoint1Full]
         if None in cornerPointUL:
@@ -984,16 +996,6 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
         if None in cornerPointLL:
             return False
         
-        if hasElevationModel():
-            cornerPointUL = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointUL)
-            cornerPointUR = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointUR)
-            cornerPointLR = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointLR)
-            cornerPointLL = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointLL)
-
         UpdateFootPrintData(
             packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, hasElevationModel())
 
@@ -1005,7 +1007,11 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
 
         if mosaic:
             georeferencingVideo(parent)
-        
+    
+    UpdateFrameCenterData(frameCenterPoint, hasElevationModel())
+    
+    UpdateFrameAxisData(packet.ImageSourceSensor, GetSensor(), frameCenterPoint, hasElevationModel())
+    
     items = GetMapItems()
     
     if items["footprint"] and items["platform"] and items["framecenter"]:        
@@ -1376,7 +1382,7 @@ def GetLine3DIntersectionWithDEM(sensorPt, targetPt):
         targetAlt = targetPt[2]
     except Exception:
         targetAlt = GetFrameCenter()[2]
-
+    
     distance = sphere.distance([sensorLat, sensorLon], [targetLat, targetLon])
     distance = sqrt(distance ** 2 + (targetAlt - sensorAlt) ** 2)
     dLat = (targetLat - sensorLat) / distance
