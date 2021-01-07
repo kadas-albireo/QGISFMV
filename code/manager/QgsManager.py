@@ -399,13 +399,14 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         #zoom to map zone     
         curAuthId =  self.iface.mapCanvas().mapSettings().destinationCrs().authid()
         
-        map_pos = QgsPointXY(self.initialPt[row][1], self.initialPt[row][0])
-        if curAuthId != "EPSG:4326":
-            trgCode=int(curAuthId.split(":")[1])
-            xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
-            map_pos = xform.transform(map_pos)
-            
-        self.iface.mapCanvas().setCenter(map_pos)
+        if self.initialPt[row][1] != None and self.initialPt[row][0] != None:
+            map_pos = QgsPointXY(self.initialPt[row][1], self.initialPt[row][0])
+            if curAuthId != "EPSG:4326":
+                trgCode=int(curAuthId.split(":")[1])
+                xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
+                map_pos = xform.transform(map_pos)
+                
+            self.iface.mapCanvas().setCenter(map_pos)
         self.iface.mapCanvas().zoomScale(50000)
             
 

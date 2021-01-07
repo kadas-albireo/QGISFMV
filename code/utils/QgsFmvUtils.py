@@ -299,9 +299,9 @@ class BufferedMetaReader():
                 #qgsu.showUserAndLogMessage("", "delta: " + str(delta_millisec), onlyLog=True)
                 if delta_millisec <= self.intervall:
                     size += 1
-                    qgsu.showUserAndLogMessage("", "Smaller or equal than pass_time:" + str(delta_millisec), onlyLog=True)
+                    #qgsu.showUserAndLogMessage("", "Smaller or equal than pass_time:" + str(delta_millisec), onlyLog=True)
                 else:
-                    qgsu.showUserAndLogMessage("", "Greater than pass_time:" + str(delta_millisec), onlyLog=True)
+                    #qgsu.showUserAndLogMessage("", "Greater than pass_time:" + str(delta_millisec), onlyLog=True)
                     break
             
             last_date = c_date            
@@ -537,14 +537,21 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                     "Error interpreting klv data, metadata cannot be read.", "the parser did not recognize KLV data", level=QGis.Warning)
                 continue
             packet.MetadataList()
-            frameCenterLat = packet.FrameCenterLatitude
-            frameCenterLon = packet.FrameCenterLongitude
+            
+            centerLat = packet.FrameCenterLatitude
+            centerLon = packet.FrameCenterLongitude
+            
+            #Target maybe unavailable because of horizontal view
+            if centerLat == None and centerLon == None:
+                centerLat = packet.SensorLatitude
+                centerLon = packet.SensorLongitude
+            
             loc = "-"
 
             if Reverse_geocoding_url != "":
                 try:
                     url = QUrl(Reverse_geocoding_url.format(
-                        str(frameCenterLat), str(frameCenterLon)))
+                        str(centerLat), str(centerLon)))
                     request = QNetworkRequest(url)
                     reply = QgsNetworkAccessManager.instance().get(request)
                     loop = QEventLoop()
@@ -568,10 +575,10 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                     qgsu.showUserAndLogMessage(
                         "", "getVideoLocationInfo: failed to get address from reverse geocoding service.", onlyLog=True)
 
-            location = [frameCenterLat, frameCenterLon, loc]
+            location = [centerLat, centerLon, loc]
 
-            qgsu.showUserAndLogMessage("", "Got Location: lon: " + str(frameCenterLon) +
-                                       " lat: " + str(frameCenterLat) + " location: " + str(loc), onlyLog=True)
+            qgsu.showUserAndLogMessage("", "Got Location: lon: " + str(centerLon) +
+                                       " lat: " + str(centerLat) + " location: " + str(loc), onlyLog=True)
 
             break
         else:
@@ -916,7 +923,7 @@ def initElevationModel(frameCenterLat, frameCenterLon, dtm_path):
 
 def UpdateLayers(packet, parent=None, mosaic=False, group=None):
     ''' Update Layers Values '''
-    global frameCenterElevation, sensorLatitude, sensorLongitude, sensorTrueAltitude, groupName
+    global frameCenterElevation, sensorLatitude, sensorLongitude, sensorTrueAltitude, groupName, geotransform
 
     groupName = group
     frameCenterLat = packet.FrameCenterLatitude
@@ -932,6 +939,12 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
     UpdateTrajectoryData(packet, hasElevationModel())
      
     frameCenterPoint = [packet.FrameCenterLatitude, packet.FrameCenterLongitude, packet.FrameCenterElevation]
+    
+    #If no framcenter (f.i. horizontal target) don't comptute footprint, beams and frame center
+    if (frameCenterPoint[0]==None and frameCenterPoint[1]==None):
+        geotransform = None
+        return True
+    
     if hasElevationModel():
         frameCenterPoint = GetLine3DIntersectionWithDEM(GetSensor(), frameCenterPoint)
 
@@ -992,19 +1005,10 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
 
         if mosaic:
             georeferencingVideo(parent)
-    
-    #detect if we need a recenter or not. If Footprint and Platform fits in 80% of the map, do not trigger recenter.
-    #f_lyr = qgsu.selectLayerByName(Footprint_lyr, groupName)
-    #p_lyr = qgsu.selectLayerByName(Platform_lyr, groupName)
-    #t_lyr = qgsu.selectLayerByName(FrameCenter_lyr, groupName)
-    
+        
     items = GetMapItems()
     
-    #if f_lyr != None and p_lyr != None and t_lyr != None:
     if items["footprint"] and items["platform"] and items["framecenter"]:        
-        #f_lyr_out_extent = parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(f_lyr, f_lyr.extent())
-        #p_lyr_out_extent = parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(p_lyr, p_lyr.extent())
-        #t_lyr_out_extent = parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(t_lyr, t_lyr.extent())
         
         curAuthId =  parent.iface.mapCanvas().mapSettings().destinationCrs().authid()
         trgCode = int(curAuthId.split(":")[1])
@@ -1019,7 +1023,6 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
         f_lyr_out_extent = QgsRectangle(rectLL, rectUR)
         t_lyr_out_extent = QgsRectangle(transT.x(), transT.y(), transT.x(), transT.y())
         p_lyr_out_extent = QgsRectangle(transP.x(), transP.y(), transP.x(), transP.y())
-        
         
         bValue = parent.iface.mapCanvas().extent().xMaximum() - parent.iface.mapCanvas().center().x()
         
@@ -1120,6 +1123,8 @@ def CornerEstimationWithOffsets(packet):
     ''' Corner estimation using Offsets
     :param packet: Metada packet
     '''
+    global geotransform
+    
     try:
 
         OffsetLat1 = packet.OffsetCornerLatitudePoint1
@@ -1144,6 +1149,11 @@ def CornerEstimationWithOffsets(packet):
                          OffsetLon4 + frameCenterLon)
          
         frameCenterPoint = [packet.FrameCenterLatitude, packet.FrameCenterLongitude, packet.FrameCenterElevation]
+        
+        #If no framcenter (f.i. horizontal target) don't comptute footprint, beams and frame center
+        if (frameCenterPoint[0]==None and frameCenterPoint[1]==None):
+            geotransform = None
+            return True
         
         if hasElevationModel():
             cornerPointUL = GetLine3DIntersectionWithDEM(
@@ -1174,6 +1184,8 @@ def CornerEstimationWithOffsets(packet):
 
 def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, FOV=None, others=None):
     ''' Corner estimation without Offsets '''
+    global geotransform
+    
     try:
         if packet is not None:
             sensorLatitude = packet.SensorLatitude
@@ -1294,6 +1306,12 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
             reversed(sphere.destination(destPoint, distance2, bearing)))
         
         frameCenterPoint = [packet.FrameCenterLatitude, packet.FrameCenterLongitude, packet.FrameCenterElevation]
+        
+        #If no framcenter (f.i. horizontal target) don't comptute footprint, beams and frame center
+        if (frameCenterPoint[0]==None and frameCenterPoint[1]==None):
+            geotransform = None
+            return True
+        
         if hasElevationModel():
             cornerPointUL = GetLine3DIntersectionWithDEM(
                 GetSensor(), cornerPointUL)
@@ -1305,7 +1323,6 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
                 GetSensor(), cornerPointLL)
             frameCenterPoint = GetLine3DIntersectionWithDEM(
                 GetSensor(), frameCenterPoint)
-
 
         if sensor is not None:
             return cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL
@@ -1340,8 +1357,9 @@ def GetDemAltAt(lon, lat):
     try:
         alt = dtm_data[row - dtm_rowLowerBound][col - dtm_colLowerBound]
     except:
-        qgsu.showUserAndLogMessage(
-                "", "GetDemAltAt: Point is out of DEM.", onlyLog=True)
+        pass
+        #qgsu.showUserAndLogMessage(
+        #        "", "GetDemAltAt: Point is out of DEM.", onlyLog=True)
         
     return alt
 
@@ -1396,8 +1414,8 @@ def GetLine3DIntersectionWithDEM(sensorPt, targetPt):
             break
 
     if not pt:
-        qgsu.showUserAndLogMessage(
-            "", "DEM point not found, last computed delta high: " + str(diffAlt), onlyLog=True)
+        #qgsu.showUserAndLogMessage(
+        #    "", "DEM point not found, last computed delta high: " + str(diffAlt), onlyLog=True)
         # If fail,Return original point and add target elevation
         l = list(targetPt)
         l.append(targetAlt)

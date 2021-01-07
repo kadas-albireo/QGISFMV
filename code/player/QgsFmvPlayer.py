@@ -154,7 +154,6 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.pass_time = pass_time
         self.player.setNotifyInterval(2000)  # Player update interval
         
-
         self.player.setVideoOutput(
             self.videoWidget.videoSurface())  # Abstract Surface
 
@@ -371,31 +370,31 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @param nextTime: Next timestamp
         '''
        
-        try:
-            fName = self.fileName
-                        
-            if self.isStreaming:
-                port = int(self.fileName.split(':')[2])
-                fName = self.fileName.replace(str(port), str(port + 1))
-            
-            p = _spawn(cmds=['-i', fName ,
-                                             '-ss', currentTime,
-                                             '-to', nextTime,
-                                             '-map', '0:d:'+str(klv_index),
-                                             '-preset', 'ultrafast',
-                                             '-f', 'data', '-'])
-                                             
-            stdout_data, _ = p.communicate()
+        #try:
+        fName = self.fileName
+                    
+        if self.isStreaming:
+            port = int(self.fileName.split(':')[2])
+            fName = self.fileName.replace(str(port), str(port + 1))
+        
+        p = _spawn(cmds=['-i', fName ,
+                                         '-ss', currentTime,
+                                         '-to', nextTime,
+                                         '-map', '0:d:'+str(klv_index),
+                                         '-preset', 'ultrafast',
+                                         '-f', 'data', '-'])
+                                         
+        stdout_data, _ = p.communicate()
 
-            if stdout_data == b'':
-                qgsu.showUserAndLogMessage("", "CallMetadataSync returned no data for precise positioning.", onlyLog=True)
-                return
-            
-            self.packetStreamParser(stdout_data)
+        if stdout_data == b'':
+            qgsu.showUserAndLogMessage("", "CallMetadataSync returned no data for precise positioning.", onlyLog=True)
+            return
+        
+        self.packetStreamParser(stdout_data)
 
-        except Exception as e:
-            qgsu.showUserAndLogMessage(QCoreApplication.translate(
-                "QgsFmvPlayer", "Metadata Sync Call Failed : "), str(e))
+        #except Exception as e:
+        #    qgsu.showUserAndLogMessage(QCoreApplication.translate(
+        #        "QgsFmvPlayer", "Metadata Sync Call Failed : "), str(e))
 
     def readLocal(self, currentInfo):
         ''' Read Local Metadata ,klv files'''
