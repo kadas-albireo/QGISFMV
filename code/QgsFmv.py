@@ -116,10 +116,8 @@ class Fmv:
     def tabChanged(self):
         if self._FMVManager:
             #qgsu.showUserAndLogMessage("", "Manager exists, Tab changed, closing.", onlyLog=True)
-            RemoveAllDrawings()
-            self._FMVManager.CloseFMV()
+            self.hideManagerWidget()
             self.actionFMV.setChecked(False)
-            self.run_once = False
     
     def unload(self):
         ''' Unload Plugin '''
@@ -185,6 +183,7 @@ class Fmv:
     
     def hideManagerWidget( self ):
         if self._FMVManager:
+            self._FMVManager.closePlayer()
             self._FMVManager.hide()
         if self.bottomBar:
             self.bottomBar.hide()

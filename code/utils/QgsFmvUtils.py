@@ -257,19 +257,17 @@ class StreamMetaReader():
 
 class BufferedMetaReader():
     ''' Non-Blocking metadata reader with buffer  '''
-    # intervall = 250 is a good value, if we go higher the drawings may not be accurate.
     # if we go lower, the buffer will shrink drastically and the video may hang.
-    def __init__(self, video_path, klv_index=0, pass_time=250, intervall=1000):
+    def __init__(self, video_path, klv_index=0, pass_time=250, interval=1000):
         ''' Constructor '''
         # don't go too low with pass_time or we won't catch any metadata at
         # all.
         # 8 x 500 = 4000ms buffer time
-        # min_buffer_size x buffer_intervall = Miliseconds buffer time
+        # min_buffer_size x buffer_interval = Miliseconds buffer time
         self.video_path = video_path
         self.pass_time = pass_time
-        self.intervall = intervall
+        self.interval = interval
         self._meta = {}
-        self._idx = {}
         self._min_buffer_size = min_buffer_size
         self.klv_index = klv_index
         self._initialize('00:00:00.0000', self._min_buffer_size)
@@ -278,7 +276,7 @@ class BufferedMetaReader():
         self.bufferParalell(start, size)
 
     def _check_buffer(self, start):
-        self.bufferParalell(start, self._min_buffer_size * 2)
+        self.bufferParalell(start, self._min_buffer_size)
 
     def getSize(self, t):
         size = 0
@@ -295,9 +293,9 @@ class BufferedMetaReader():
             if c_date > s_date:
                 #qgsu.showUserAndLogMessage("", "Comparing: ele:" + ele + " greater than t (as date):" + t + " : yes", onlyLog=True)
                 #qgsu.showUserAndLogMessage("", "c_date:" + c_date.strftime('%H:%M:%S.%f') + " last_date:" + last_date.strftime('%H:%M:%S.%f'), onlyLog=True)
-                delta_millisec = (c_date - last_date).microseconds + (c_date - last_date).seconds * 1000
+                delta_millisec = (c_date - last_date).microseconds / 1000 + (c_date - last_date).seconds * 1000
                 #qgsu.showUserAndLogMessage("", "delta: " + str(delta_millisec), onlyLog=True)
-                if delta_millisec <= self.intervall:
+                if delta_millisec <= self.interval:
                     size += 1
                     #qgsu.showUserAndLogMessage("", "Smaller or equal than pass_time:" + str(delta_millisec), onlyLog=True)
                 else:
@@ -306,40 +304,26 @@ class BufferedMetaReader():
             
             last_date = c_date            
             
-        #qgsu.showUserAndLogMessage("Buffer size:" + str(self.getSize(t)), "Buffer size:" + str(self.getSize(t)), onlyLog=False)
         return size
 
     def bufferParalell(self, start, size):
         start_sec = _time_to_seconds(start)
         start_milisec = int(start_sec * 1000)
         
-        i=0
-        cmds = []
-        p = callBackMetadataThread()
-        for k in range(start_milisec, start_milisec + (size * self.intervall), self.intervall):
+        for k in range(start_milisec, start_milisec + (size * self.interval), self.interval):
             cTime = k / 1000.0
             nTime = (k + self.pass_time) / 1000.0
             new_key = _seconds_to_time_frac(cTime)
 
             if new_key not in self._meta:
-                if i > 0:
-                    cmds += ['&&', 'cmd.exe', '/c', 'echo END_WORD', '&&']
-
-                cmds += [ffmpeg_path,
-                        '-i', self.video_path,
-                        '-preset', 'ultrafast',
-                        '-ss', new_key,
-                        '-to', _seconds_to_time_frac(
-                        nTime),
-                        '-map', '0:d:' + str(self.klv_index),
-                        '-f', 'data', '-']
-
-                self._meta[new_key] = p
-                self._idx[new_key] = i
-                i += 1
-
-        p.setCmds(cmds)
-        p.start()
+                # qgsu.showUserAndLogMessage("QgsFmvUtils", 'buffering: ' + _seconds_to_time_frac(cTime) + " to " + _seconds_to_time_frac(nTime), onlyLog=True)
+                self._meta[new_key] = callBackMetadataThread(cmds=['-i', self.video_path,
+                                                                   '-ss', new_key,
+                                                                   '-to', _seconds_to_time_frac(
+                                                                       nTime),
+                                                                   '-map', '0:d:'+str(self.klv_index),
+                                                                   '-f', 'data', '-'])
+                self._meta[new_key].start()
 
     def get(self, t):
         ''' read a value and check the buffer '''
@@ -349,7 +333,11 @@ class BufferedMetaReader():
         new_t = ''
         try:
             milis = int(s[1][:-1])
-            r_milis = round(milis / self.intervall) * self.intervall
+            
+            if self.interval > 1000:
+               inte = 1000
+               
+            r_milis = round(milis / inte) * inte
             if r_milis != 1000:
                 if r_milis < 1000:
                     new_t = s[0] + "." + str(r_milis) + "0"
@@ -379,16 +367,17 @@ class BufferedMetaReader():
                 qgsu.showUserAndLogMessage(
                     "", "Meta reader -> get: " + t + " cache: " + new_t + " values not ready yet.", onlyLog=True)
             elif self._meta[new_t].stdout:
-                if self._idx[new_t] == 0:
-                    value = self._meta[new_t].stdout.split(b'END_WORD')[self._idx[new_t]]
-                else:
-                    value = self._meta[new_t].stdout.split(b'END_WORD')[self._idx[new_t]][3:]
+                value = self._meta[new_t].stdout
             else:
                 qgsu.showUserAndLogMessage(
                     "", "Meta reader -> get: " + t + " cache: " + new_t + " values ready but empty.", onlyLog=True)
-             
-            if self.getSize(t) < self._min_buffer_size:
-                self._check_buffer(new_t)
+            
+            bSize = self.getSize(t)            
+            self._check_buffer(new_t)
+            
+            #debug            
+            #qgsu.showUserAndLogMessage("Buffer size:" + str(bSize), "Buffer size:" + str(bSize), onlyLog=False)
+
         except Exception as e:
             qgsu.showUserAndLogMessage(
                 "", "No value found for: " + t + " rounded: " + new_t + " e:" + str(e), onlyLog=True)
@@ -414,15 +403,12 @@ class callBackMetadataThread(threading.Thread):
         self.cmds = cmds
         
     def run(self):
-        #self.p = _spawn(self.cmds)
-        self.p =subprocess.Popen(self.cmds, shell=windows, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                         bufsize=0,
-                         close_fds=(not windows))
-        #print (self.cmds)
-        #qgsu.showUserAndLogMessage("QgsFmvUtils", "callBackMetadataThread running: " + " ".join(self.cmds), onlyLog=True)
+        #qgsu.showUserAndLogMessage("", "callBackMetadataThread run: commands:" + str(self.cmds), onlyLog=True)                                        
+        self.p = _spawn(self.cmds)
+        # print (self.cmds)
         self.stdout, _ = self.p.communicate()
-        #print ("_:" + _)
-        #print ("stdout:" + self.stdout)
+        # print (self.stdout)
+        # print (_)
         
 
 
