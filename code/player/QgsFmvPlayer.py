@@ -300,12 +300,16 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
                 return
             # Values need to be read, pause the video a short while
             elif stdout_data == 'BUFFERING':
-                qgsu.showUserAndLogMessage(QCoreApplication.translate("QgsFmvPlayer", "Buffering metadata..."), duration=6, level=QGis.Info)
-                oldState = self.playerState
-                self.player.pause()
-                #lambda x: True if x % 2 == 0 else False
-                QTimer.singleShot(2500, lambda: self.resumePlay(oldState))
-                return
+                # If the notify interval is low, we need to pause the video to wait for the metadata
+                # buffer to fill in. With higher values we may miss 1 or 2 Metadata but the buffer will
+                # then catch up.
+                if self.player.notifyInterval() <= 1000:
+                    qgsu.showUserAndLogMessage(QCoreApplication.translate("QgsFmvPlayer", "Metadata Buffering..."), duration=2, level=QGis.Info)
+                    oldState = self.playerState
+                    self.player.pause()
+                    lambda x: True if x % 2 == 0 else False
+                    QTimer.singleShot(2000, lambda: self.resumePlay(oldState))
+                    return
             elif stdout_data is None:
                 #qgsu.showUserAndLogMessage(QCoreApplication.translate("QgsFmvPlayer", "No metadata to show, buffer size."), level=QGis.Info)
                 # qgsu.showUserAndLogMessage("No metadata to show.", "Buffer returned None Type, check pass_time. : ", onlyLog=True)

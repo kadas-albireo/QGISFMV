@@ -134,7 +134,11 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         ''' Remove current row ''' 
         if self.loading:
             return
-            
+        
+        # close video player (safer because it changes playlist internals)
+        if self._PlayerDlg is not None:
+            self._PlayerDlg.close()
+                
         for cr in self.VManager.selectedItems():
             idx = 0
             #we browse cells but we need lines, so ignore already deleted rows
@@ -151,7 +155,6 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             self.videoPlayable.pop(idx)
             self.videoIsStreaming.pop(idx)
             self.initialPt.pop(idx)
-            self.playlist.removeMedia(idx)
             
             # Remove video to Settings List
             RemoveVideoToSettings(row_id)
@@ -163,8 +166,9 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             
             self.meta_reader.pop(idx)
             
-            if self.playlist.isEmpty() and self._PlayerDlg is not None:
-                self._PlayerDlg.close()
+            #remove from playlist
+            self.playlist.removeMedia(idx)
+
     
     def closePlayer(self):
         ''' Close FMV '''
