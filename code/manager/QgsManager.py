@@ -366,7 +366,6 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         if not self.videoPlayable[model.row()]:
             return
         
-        # why????
         try:
             if self._PlayerDlg.isVisible():
                 self._PlayerDlg.close()
@@ -387,15 +386,14 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             else:
                 self.CreatePlayer(path, self.update_interval, model.row())  
         
+        self.SetupPlayer(model.row())
+        
         if exist:
             self._PlayerDlg.playFile(path, islocal=True, klv_folder=klv_folder)
         else:
             self._PlayerDlg.playFile(path)              
         
         
-        self.SetupPlayer(model.row())
-    
-    
     def SetupPlayer(self, row):
         ''' Play video from manager dock.
             Manager row double clicked
@@ -422,6 +420,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
                 map_pos = xform.transform(map_pos)
                 
             self.iface.mapCanvas().setCenter(map_pos)
+            
         self.iface.mapCanvas().zoomScale(50000)
             
 
