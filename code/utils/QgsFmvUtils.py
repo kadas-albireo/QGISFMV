@@ -3,7 +3,7 @@ from configparser import ConfigParser
 from datetime import datetime
 import inspect
 import json
-from math import atan, tan, sqrt, radians, pi, degrees
+from math import sin, atan, tan, sqrt, radians, pi, degrees
 import os
 from os.path import dirname, abspath
 import platform
@@ -16,13 +16,19 @@ from qgis.PyQt.QtGui import QImage, QPainter
 from qgis.PyQt.QtNetwork import QNetworkRequest
 from qgis.PyQt.QtWidgets import QFileDialog
 from qgis.core import (QgsApplication,
+                       QgsRectangle,
+                       QgsPointXY,
                        QgsNetworkAccessManager,
                        QgsTask,
+                       QgsCoordinateReferenceSystem,
+                       QgsProject,
+                       QgsCoordinateTransform,
                        QgsRasterLayer,
                        Qgis as QGis)
 # from subprocess import Popen, PIPE, STARTF_USESHOWWINDOW, STARTUPINFO, check_output, DEVNULL
 import subprocess
 import threading
+import collections
 from queue import Queue, Empty
 
 from osgeo import gdal, osr
@@ -30,7 +36,7 @@ from osgeo import gdal, osr
 from QGIS_FMV.geo import sphere
 from QGIS_FMV.klvdata.element import UnknownElement
 from QGIS_FMV.klvdata.streamparser import StreamParser
-from QGIS_FMV.utils.QgsFmvLayers import (addLayerNoCrsDialog,
+from QGIS_FMV.utils.KadasFmvLayers import (addLayerNoCrsDialog,
                                          ExpandLayer,
                                          UpdateFootPrintData,
                                          UpdateTrajectoryData,
@@ -39,7 +45,9 @@ from QGIS_FMV.utils.QgsFmvLayers import (addLayerNoCrsDialog,
                                          UpdateFrameCenterData,
                                          UpdateFrameAxisData,
                                          SetcrtSensorSrc,
-                                         SetcrtPltTailNum)
+                                         SetcrtPltTailNum,
+                                         RemoveAllDrawings,
+                                         GetMapItems)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 
 parser = ConfigParser()
@@ -54,15 +62,23 @@ FrameCenter_lyr = parser['LAYERS']['FrameCenter_lyr']
 dtm_buffer = int(parser['GENERAL']['DTM_buffer_size'])
 ffmpegConf = parser['GENERAL']['ffmpeg']
 
-try:
-    from homography import from_points
-except ImportError:
-    None
+windows = platform.system() == 'Windows'
+
+if windows:
+    ffmpegConf = os.path.join(QgsApplication.applicationDirPath(), '..', 'opt', 'ffmpeg')
+else:
+    ffmpegConf = '/usr/bin'
+
+#try:
+#    from homography import from_points
+#except ImportError:
+#    None
 
 try:
     from cv2 import (COLOR_BGR2RGB,
                      cvtColor,
-                     COLOR_GRAY2RGB)
+                     COLOR_GRAY2RGB,
+                     findHomography)
     import numpy as np
 except ImportError:
     None
@@ -189,8 +205,8 @@ class Splitter(threading.Thread):
         else:
             self.cmds.insert(0, ffprobe_path)
 
-        qgsu.showUserAndLogMessage("", "starting Splitter on thread:" + str(threading.current_thread().ident), onlyLog=True)
-        qgsu.showUserAndLogMessage("", "with args:" + ' '.join(self.cmds), onlyLog=True)
+        #qgsu.showUserAndLogMessage("", "starting Splitter on thread:" + str(threading.current_thread().ident), onlyLog=True)
+        #qgsu.showUserAndLogMessage("", "with args:" + ' '.join(self.cmds), onlyLog=True)
 
         # Hide shell windows that pops up on windows.
         if windows:
@@ -224,11 +240,11 @@ class StreamMetaReader():
         return self.splitter.nbsr._q.qsize()
 
     def get(self, _):
-        qgsu.showUserAndLogMessage("", "Get called on Streamreader.", onlyLog=True)
+        #qgsu.showUserAndLogMessage("", "Get called on Streamreader.", onlyLog=True)
         return self.splitter.nbsr.readline()
 
     def dispose(self):
-        qgsu.showUserAndLogMessage("", "Dispose called on StreamMetaReader.", onlyLog=True)
+        #qgsu.showUserAndLogMessage("", "Dispose called on StreamMetaReader.", onlyLog=True)
         self.splitter.nbsr.stopped = True
         # kill the process if open, releases source port
         try:
@@ -241,17 +257,16 @@ class StreamMetaReader():
 
 class BufferedMetaReader():
     ''' Non-Blocking metadata reader with buffer  '''
-    # intervall = 250 is a good value, if we go higher the drawings may not be accurate.
     # if we go lower, the buffer will shrink drastically and the video may hang.
-    def __init__(self, video_path, klv_index=0, pass_time=250, intervall=250):
+    def __init__(self, video_path, klv_index=0, pass_time=250, interval=1000):
         ''' Constructor '''
         # don't go too low with pass_time or we won't catch any metadata at
         # all.
         # 8 x 500 = 4000ms buffer time
-        # min_buffer_size x buffer_intervall = Miliseconds buffer time
+        # min_buffer_size x buffer_interval = Miliseconds buffer time
         self.video_path = video_path
         self.pass_time = pass_time
-        self.intervall = intervall
+        self.interval = interval
         self._meta = {}
         self._min_buffer_size = min_buffer_size
         self.klv_index = klv_index
@@ -263,17 +278,43 @@ class BufferedMetaReader():
     def _check_buffer(self, start):
         self.bufferParalell(start, self._min_buffer_size)
 
-    def getSize(self):
-        return len(self._meta)
+    def getSize(self, t):
+        size = 0
+        s_date = datetime.strptime(t, '%H:%M:%S.%f')
+        last_date = None
+        #calculate buffer size ahead of supplied time (contiguous values only).       
+        od = collections.OrderedDict(sorted(self._meta.items()))
+        for ele in od.keys():       
+            c_date = datetime.strptime(ele, '%H:%M:%S.%f')
+            if last_date == None:
+                last_date = c_date
+                continue
+
+            if c_date > s_date:
+                #qgsu.showUserAndLogMessage("", "Comparing: ele:" + ele + " greater than t (as date):" + t + " : yes", onlyLog=True)
+                #qgsu.showUserAndLogMessage("", "c_date:" + c_date.strftime('%H:%M:%S.%f') + " last_date:" + last_date.strftime('%H:%M:%S.%f'), onlyLog=True)
+                delta_millisec = (c_date - last_date).microseconds / 1000 + (c_date - last_date).seconds * 1000
+                #qgsu.showUserAndLogMessage("", "delta: " + str(delta_millisec), onlyLog=True)
+                if delta_millisec <= self.interval:
+                    size += 1
+                    #qgsu.showUserAndLogMessage("", "Smaller or equal than pass_time:" + str(delta_millisec), onlyLog=True)
+                else:
+                    #qgsu.showUserAndLogMessage("", "Greater than pass_time:" + str(delta_millisec), onlyLog=True)
+                    break
+            
+            last_date = c_date            
+            
+        return size
 
     def bufferParalell(self, start, size):
         start_sec = _time_to_seconds(start)
         start_milisec = int(start_sec * 1000)
-
-        for k in range(start_milisec, start_milisec + (size * self.intervall), self.intervall):
+        
+        for k in range(start_milisec, start_milisec + (size * self.interval), self.interval):
             cTime = k / 1000.0
             nTime = (k + self.pass_time) / 1000.0
             new_key = _seconds_to_time_frac(cTime)
+
             if new_key not in self._meta:
                 # qgsu.showUserAndLogMessage("QgsFmvUtils", 'buffering: ' + _seconds_to_time_frac(cTime) + " to " + _seconds_to_time_frac(nTime), onlyLog=True)
                 self._meta[new_key] = callBackMetadataThread(cmds=['-i', self.video_path,
@@ -292,7 +333,11 @@ class BufferedMetaReader():
         new_t = ''
         try:
             milis = int(s[1][:-1])
-            r_milis = round(milis / self.intervall) * self.intervall
+            
+            if self.interval > 1000:
+               inte = 1000
+               
+            r_milis = round(milis / inte) * inte
             if r_milis != 1000:
                 if r_milis < 1000:
                     new_t = s[0] + "." + str(r_milis) + "0"
@@ -326,8 +371,13 @@ class BufferedMetaReader():
             else:
                 qgsu.showUserAndLogMessage(
                     "", "Meta reader -> get: " + t + " cache: " + new_t + " values ready but empty.", onlyLog=True)
-
+            
+            bSize = self.getSize(t)            
             self._check_buffer(new_t)
+            
+            #debug            
+            #qgsu.showUserAndLogMessage("Buffer size:" + str(bSize), "Buffer size:" + str(bSize), onlyLog=False)
+
         except Exception as e:
             qgsu.showUserAndLogMessage(
                 "", "No value found for: " + t + " rounded: " + new_t + " e:" + str(e), onlyLog=True)
@@ -344,18 +394,22 @@ class BufferedMetaReader():
 class callBackMetadataThread(threading.Thread):
     ''' CallBack metadata in other thread  '''
 
-    def __init__(self, cmds):
+    def __init__(self, cmds = []):
         self.cmds = cmds
         self.p = None
         threading.Thread.__init__(self)
-
+    
+    def setCmds(self, cmds):
+        self.cmds = cmds
+        
     def run(self):
-        # qgsu.showUserAndLogMessage("", "callBackMetadataThread run: commands:" + str(self.cmds), onlyLog=True)
+        #qgsu.showUserAndLogMessage("", "callBackMetadataThread run: commands:" + str(self.cmds), onlyLog=True)                                        
         self.p = _spawn(self.cmds)
         # print (self.cmds)
         self.stdout, _ = self.p.communicate()
         # print (self.stdout)
         # print (_)
+        
 
 
 def AddVideoToSettings(row_id, path):
@@ -459,7 +513,7 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                         '-f', 'data', '-'])
 
             stdout_data, _ = p.communicate()
-        #qgsu.showUserAndLogMessage(stdout_data, stdout_data, onlyLog=True)
+            #qgsu.showUserAndLogMessage("Video Loc info raw result", stdout_data, onlyLog=True)
         if stdout_data == b'':
             #qgsu.showUserAndLogMessage("Error interpreting klv data, metadata cannot be read.", "the parser did not recognize KLV data", level=QGis.Warning)                                                                                                                                    
             return
@@ -469,14 +523,21 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                     "Error interpreting klv data, metadata cannot be read.", "the parser did not recognize KLV data", level=QGis.Warning)
                 continue
             packet.MetadataList()
-            frameCenterLat = packet.FrameCenterLatitude
-            frameCenterLon = packet.FrameCenterLongitude
+            
+            centerLat = packet.FrameCenterLatitude
+            centerLon = packet.FrameCenterLongitude
+            
+            #Target maybe unavailable because of horizontal view
+            if centerLat == None and centerLon == None:
+                centerLat = packet.SensorLatitude
+                centerLon = packet.SensorLongitude
+            
             loc = "-"
 
             if Reverse_geocoding_url != "":
                 try:
                     url = QUrl(Reverse_geocoding_url.format(
-                        str(frameCenterLat), str(frameCenterLon)))
+                        str(centerLat), str(centerLon)))
                     request = QNetworkRequest(url)
                     reply = QgsNetworkAccessManager.instance().get(request)
                     loop = QEventLoop()
@@ -500,10 +561,10 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                     qgsu.showUserAndLogMessage(
                         "", "getVideoLocationInfo: failed to get address from reverse geocoding service.", onlyLog=True)
 
-            location = [frameCenterLat, frameCenterLon, loc]
+            location = [centerLat, centerLon, loc]
 
-            qgsu.showUserAndLogMessage("", "Got Location: lon: " + str(frameCenterLon) +
-                                       " lat: " + str(frameCenterLat) + " location: " + str(loc), onlyLog=True)
+            qgsu.showUserAndLogMessage("", "Got Location: lon: " + str(centerLon) +
+                                       " lat: " + str(centerLat) + " location: " + str(loc), onlyLog=True)
 
             break
         else:
@@ -650,14 +711,7 @@ def SetGCPsToGeoTransform(cornerPointUL, cornerPointUR, cornerPointLR, cornerPoi
     gcps = []
 
     global gcornerPointUL, gcornerPointUR, gcornerPointLR, gcornerPointLL, gframeCenterLat, gframeCenterLon, geotransform_affine, geotransform
-
-    # TEMP FIX : If have elevation the geotransform is wrong
-    if ele:
-        del cornerPointUL[-1]
-        del cornerPointUR[-1]
-        del cornerPointLR[-1]
-        del cornerPointLL[-1]
-        
+         
     gcornerPointUL = cornerPointUL
     gcornerPointUR = cornerPointUR
     gcornerPointLR = cornerPointLR
@@ -685,14 +739,18 @@ def SetGCPsToGeoTransform(cornerPointUL, cornerPointUR, cornerPointLR, cornerPoi
     gcps.append(gcp)
 
     geotransform_affine = gdal.GCPsToGeoTransform(gcps)
+    
 
     src = np.float64(
-        np.array([[0.0, 0.0], [xSize, 0.0], [xSize, ySize], [0.0, ySize]]))
+        np.array([[0.0, 0.0], [xSize, 0.0], [xSize, ySize], [0.0, ySize], [xSize / 2.0, ySize / 2.0]]))
     dst = np.float64(
-        np.array([cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL]))
+        np.array([[cornerPointUL[0], cornerPointUL[1]], [cornerPointUR[0], cornerPointUR[1]], [cornerPointLR[0], cornerPointLR[1]], [cornerPointLL[0], cornerPointLL[1]], [frameCenterLat, frameCenterLon]]))
 
     try:
-        geotransform = from_points(src, dst)
+    
+        #geotransform = from_points(src, dst)
+        geotransform, status = findHomography(src, dst)
+
     except Exception:
         pass
 
@@ -747,7 +805,6 @@ def GetGCPGeoTransform():
     ''' Return Geotransform '''
     return geotransform
 
-
 def hasElevationModel():
     ''' Check if DEM is loaded '''
     if dtm_data is not None and len(dtm_data) > 0:
@@ -795,7 +852,9 @@ def _spawn(cmds, t="ffmpeg"):
 
     cmds.insert(3, '-preset')
     cmds.insert(4, 'ultrafast')
-
+    
+    #qgsu.showUserAndLogMessage("", "spawned : " + " ".join(cmds), onlyLog=True)
+    
     return subprocess.Popen(cmds, shell=windows, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             bufsize=0,
                             close_fds=(not windows))
@@ -804,13 +863,15 @@ def _spawn(cmds, t="ffmpeg"):
 def ResetData():
     ''' Reset Global Data '''
     global dtm_data, tLastLon, tLastLat
-
+    
+    
     SetcrtSensorSrc()
     SetcrtPltTailNum()
     # The DTM is not associated with every video.If we reset it, you won't see it when you change videos
     # dtm_data = []
     tLastLon = 0.0
     tLastLat = 0.0
+    RemoveAllDrawings()
 
 
 def initElevationModel(frameCenterLat, frameCenterLon, dtm_path):
@@ -848,7 +909,7 @@ def initElevationModel(frameCenterLat, frameCenterLon, dtm_path):
 
 def UpdateLayers(packet, parent=None, mosaic=False, group=None):
     ''' Update Layers Values '''
-    global frameCenterElevation, sensorLatitude, sensorLongitude, sensorTrueAltitude, groupName
+    global frameCenterElevation, sensorLatitude, sensorLongitude, sensorTrueAltitude, groupName, geotransform
 
     groupName = group
     frameCenterLat = packet.FrameCenterLatitude
@@ -857,25 +918,48 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
     sensorLatitude = packet.SensorLatitude
     sensorLongitude = packet.SensorLongitude
     sensorTrueAltitude = packet.SensorTrueAltitude
+    sensorRelativeElevationAngle = packet.SensorRelativeElevationAngle
+    slantRange = packet.SlantRange
     OffsetLat1 = packet.OffsetCornerLatitudePoint1
     LatitudePoint1Full = packet.CornerLatitudePoint1Full
 
     UpdatePlatformData(packet, hasElevationModel())
     UpdateTrajectoryData(packet, hasElevationModel())
-    UpdateFrameCenterData(packet, hasElevationModel())
-    UpdateFrameAxisData(packet, hasElevationModel())
-
+     
+    frameCenterPoint = [packet.FrameCenterLatitude, packet.FrameCenterLongitude, packet.FrameCenterElevation]
+    
+    #If no framcenter (f.i. horizontal target) don't comptute footprint, beams and frame center
+    if (frameCenterPoint[0]==None and frameCenterPoint[1]==None):
+        geotransform = None
+        return True
+    
+    #No framecenter altitude
+    if(frameCenterPoint[2]==None):
+        if(sensorRelativeElevationAngle != None and slantRange != None):
+            frameCenterPoint[2] = sensorTrueAltitude - sin(sensorRelativeElevationAngle) * slantRange
+        else:
+            frameCenterPoint[2] = 0.0
+     
+    #qgsu.showUserAndLogMessage("", "FC Alt:"+str(frameCenterPoint[2]), onlyLog=True)  
+     
     if OffsetLat1 is not None and LatitudePoint1Full is None:
+        if hasElevationModel():
+            frameCenterPoint = GetLine3DIntersectionWithDEM(GetSensor(), frameCenterPoint)
+        
         CornerEstimationWithOffsets(packet)
         if mosaic:
             georeferencingVideo(parent)
 
     elif OffsetLat1 is None and LatitudePoint1Full is None:
+        if hasElevationModel():
+            frameCenterPoint = GetLine3DIntersectionWithDEM(GetSensor(), frameCenterPoint)
+        
         CornerEstimationWithoutOffsets(packet)
         if mosaic:
             georeferencingVideo(parent)
 
     else:
+
         cornerPointUL = [packet.CornerLatitudePoint1Full,
                          packet.CornerLongitudePoint1Full]
         if None in cornerPointUL:
@@ -898,16 +982,6 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
         if None in cornerPointLL:
             return False
         
-        if hasElevationModel():
-            cornerPointUL = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointUL)
-            cornerPointUR = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointUR)
-            cornerPointLR = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointLR)
-            cornerPointLL = GetLine3DIntersectionWithDEM(
-                GetSensor(), cornerPointLL)
-
         UpdateFootPrintData(
             packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, hasElevationModel())
 
@@ -915,25 +989,37 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
                         cornerPointLR, cornerPointLL, hasElevationModel())
 
         SetGCPsToGeoTransform(cornerPointUL, cornerPointUR,
-                              cornerPointLR, cornerPointLL, frameCenterLon, frameCenterLat, hasElevationModel())
+                              cornerPointLR, cornerPointLL, frameCenterPoint[1], frameCenterPoint[0], hasElevationModel())
 
         if mosaic:
             georeferencingVideo(parent)
     
-    #detect if we need a recenter or not. If Footprint and Platform fits in 80% of the map, do not trigger recenter.
-    f_lyr = qgsu.selectLayerByName(Footprint_lyr, groupName)
-    p_lyr = qgsu.selectLayerByName(Platform_lyr, groupName)
-    t_lyr = qgsu.selectLayerByName(FrameCenter_lyr, groupName)
+    UpdateFrameCenterData(frameCenterPoint, hasElevationModel())
     
-    if f_lyr != None and p_lyr != None and t_lyr != None:
-        f_lyr_out_extent = parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(f_lyr, f_lyr.extent())
-        p_lyr_out_extent = parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(p_lyr, p_lyr.extent())
-        t_lyr_out_extent = parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(t_lyr, t_lyr.extent())
+    UpdateFrameAxisData(packet.ImageSourceSensor, GetSensor(), frameCenterPoint, hasElevationModel())
+    
+    items = GetMapItems()
+    
+    if items["footprint"] and items["platform"] and items["framecenter"]:        
+        
+        curAuthId =  parent.iface.mapCanvas().mapSettings().destinationCrs().authid()
+        trgCode = int(curAuthId.split(":")[1])
+        xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
+        transP = xform.transform(QgsPointXY(items["platform"].position().x(), items["platform"].position().y()))
+        transT = xform.transform(QgsPointXY(items["framecenter"].position().x(), items["framecenter"].position().y()))
+        
+        rect = items["footprint"].geometry().boundingBox()
+        rectLL = xform.transform(QgsPointXY(rect.xMinimum(),rect.yMinimum()))
+        rectUR = xform.transform(QgsPointXY(rect.xMaximum(),rect.yMaximum()))
+        
+        f_lyr_out_extent = QgsRectangle(rectLL, rectUR)
+        t_lyr_out_extent = QgsRectangle(transT.x(), transT.y(), transT.x(), transT.y())
+        p_lyr_out_extent = QgsRectangle(transP.x(), transP.y(), transP.x(), transP.y())
         
         bValue = parent.iface.mapCanvas().extent().xMaximum() - parent.iface.mapCanvas().center().x()
         
         #create a detection buffer 
-        map_detec_buffer = parent.iface.mapCanvas().extent().buffered(bValue * -0.8)
+        map_detec_buffer = parent.iface.mapCanvas().extent().buffered(bValue * -0.7)
         
         #qgsu.showUserAndLogMessage("", "map Max X:"+str(parent.iface.mapCanvas().extent().xMaximum()), onlyLog=True)
         #qgsu.showUserAndLogMessage("", "map_detec_buffer Max X:"+str(map_detec_buffer.xMaximum()), onlyLog=True)
@@ -941,14 +1027,15 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
         # recenter map on platform
         if not map_detec_buffer.contains(p_lyr_out_extent) and centerMode == 1:
             # recenter map on platform
-            parent.iface.mapCanvas().setExtent( parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(p_lyr, p_lyr.extent()))
+            parent.iface.mapCanvas().setExtent(p_lyr_out_extent)
+            
         # recenter map on footprint
         elif not map_detec_buffer.contains(f_lyr_out_extent) and centerMode == 2:
             #zoom a bit wider than the footprint itself
-            parent.iface.mapCanvas().setExtent( parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(f_lyr, f_lyr.extent().buffered(f_lyr.extent().width()*0.5)))
+            parent.iface.mapCanvas().setExtent( f_lyr_out_extent.buffered(f_lyr_out_extent.width()*0.5))
         # recenter map on target
         elif not map_detec_buffer.contains(t_lyr_out_extent) and centerMode == 3:
-            parent.iface.mapCanvas().setExtent( parent.iface.mapCanvas().mapSettings().layerExtentToOutputExtent(t_lyr, t_lyr.extent()))
+            parent.iface.mapCanvas().setExtent(t_lyr_out_extent)
         parent.iface.mapCanvas().refresh()
                 
     return True
@@ -1028,6 +1115,8 @@ def CornerEstimationWithOffsets(packet):
     ''' Corner estimation using Offsets
     :param packet: Metada packet
     '''
+    global geotransform
+    
     try:
 
         OffsetLat1 = packet.OffsetCornerLatitudePoint1
@@ -1050,7 +1139,14 @@ def CornerEstimationWithOffsets(packet):
                          OffsetLon3 + frameCenterLon)
         cornerPointLL = (OffsetLat4 + frameCenterLat,
                          OffsetLon4 + frameCenterLon)
-
+         
+        frameCenterPoint = [packet.FrameCenterLatitude, packet.FrameCenterLongitude, packet.FrameCenterElevation]
+        
+        #If no framcenter (f.i. horizontal target) don't comptute footprint, beams and frame center
+        if (frameCenterPoint[0]==None and frameCenterPoint[1]==None):
+            geotransform = None
+            return True
+        
         if hasElevationModel():
             cornerPointUL = GetLine3DIntersectionWithDEM(
                 GetSensor(), cornerPointUL)
@@ -1060,6 +1156,8 @@ def CornerEstimationWithOffsets(packet):
                 GetSensor(), cornerPointLR)
             cornerPointLL = GetLine3DIntersectionWithDEM(
                 GetSensor(), cornerPointLL)
+            frameCenterPoint = GetLine3DIntersectionWithDEM(
+                GetSensor(), frameCenterPoint)
 
         UpdateFootPrintData(packet,
                             cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, hasElevationModel())
@@ -1068,7 +1166,7 @@ def CornerEstimationWithOffsets(packet):
                         cornerPointLR, cornerPointLL, hasElevationModel())
 
         SetGCPsToGeoTransform(cornerPointUL, cornerPointUR,
-                              cornerPointLR, cornerPointLL, frameCenterLon, frameCenterLat, hasElevationModel())
+                              cornerPointLR, cornerPointLL, frameCenterPoint[1], frameCenterPoint[0], hasElevationModel())
 
     except Exception:
         return False
@@ -1078,6 +1176,8 @@ def CornerEstimationWithOffsets(packet):
 
 def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, FOV=None, others=None):
     ''' Corner estimation without Offsets '''
+    global geotransform
+    
     try:
         if packet is not None:
             sensorLatitude = packet.SensorLatitude
@@ -1196,7 +1296,14 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
         bearing = (value2 + 180.0 + value20) % 360.0
         cornerPointLL = list(
             reversed(sphere.destination(destPoint, distance2, bearing)))
-
+        
+        frameCenterPoint = [packet.FrameCenterLatitude, packet.FrameCenterLongitude, packet.FrameCenterElevation]
+        
+        #If no framcenter (f.i. horizontal target) don't comptute footprint, beams and frame center
+        if (frameCenterPoint[0]==None and frameCenterPoint[1]==None):
+            geotransform = None
+            return True
+        
         if hasElevationModel():
             cornerPointUL = GetLine3DIntersectionWithDEM(
                 GetSensor(), cornerPointUL)
@@ -1206,6 +1313,8 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
                 GetSensor(), cornerPointLR)
             cornerPointLL = GetLine3DIntersectionWithDEM(
                 GetSensor(), cornerPointLL)
+            frameCenterPoint = GetLine3DIntersectionWithDEM(
+                GetSensor(), frameCenterPoint)
 
         if sensor is not None:
             return cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL
@@ -1218,7 +1327,7 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
 
         SetGCPsToGeoTransform(cornerPointUL, cornerPointUR,
                               cornerPointLR, cornerPointLL,
-                              frameCenterLon, frameCenterLat, hasElevationModel())
+                              frameCenterPoint[1], frameCenterPoint[0], hasElevationModel())
 
     except Exception as e:
         qgsu.showUserAndLogMessage(QCoreApplication.translate(
@@ -1227,6 +1336,24 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
 
     return True
 
+def GetDemAltAt(lon, lat):
+    alt = 0
+   
+    xOrigin = dtm_transform[0]
+    yOrigin = dtm_transform[3]
+    pixelWidth = dtm_transform[1]
+    pixelHeight = -dtm_transform[5]
+    
+    col = int((lon - xOrigin) / pixelWidth)
+    row = int((yOrigin - lat) / pixelHeight)
+    try:
+        alt = dtm_data[row - dtm_rowLowerBound][col - dtm_colLowerBound]
+    except:
+        pass
+        #qgsu.showUserAndLogMessage(
+        #        "", "GetDemAltAt: Point is out of DEM.", onlyLog=True)
+        
+    return alt
 
 def GetLine3DIntersectionWithDEM(sensorPt, targetPt):
     ''' Obtain height for points,intersecting with DEM '''
@@ -1241,7 +1368,7 @@ def GetLine3DIntersectionWithDEM(sensorPt, targetPt):
         targetAlt = targetPt[2]
     except Exception:
         targetAlt = GetFrameCenter()[2]
-
+    
     distance = sphere.distance([sensorLat, sensorLon], [targetLat, targetLon])
     distance = sqrt(distance ** 2 + (targetAlt - sensorAlt) ** 2)
     dLat = (targetLat - sensorLat) / distance
@@ -1279,8 +1406,8 @@ def GetLine3DIntersectionWithDEM(sensorPt, targetPt):
             break
 
     if not pt:
-        qgsu.showUserAndLogMessage(
-            "", "DEM point not found, last computed delta high: " + str(diffAlt), onlyLog=True)
+        #qgsu.showUserAndLogMessage(
+        #    "", "DEM point not found, last computed delta high: " + str(diffAlt), onlyLog=True)
         # If fail,Return original point and add target elevation
         l = list(targetPt)
         l.append(targetAlt)
@@ -1388,7 +1515,8 @@ def BurnDrawingsImage(source, overlay):
     p = QPainter()
     p.setRenderHint(QPainter.HighQualityAntialiasing)
     p.begin(base)
-    p.setCompositionMode(QPainter.CompositionMode_SourceOut)
+    #with CompositionMode_SourceOut we have a black image at the end.
+    p.setCompositionMode(QPainter.CompositionMode_SourceOver)
     p.drawImage(0, 0, overlay)
     p.end()
 
