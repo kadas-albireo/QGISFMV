@@ -261,7 +261,7 @@ class VideoWidget(QVideoWidget):
         self.poly_coordinates, self.drawPtPos, self.drawLines, self.drawMeasureDistance, self.drawMeasureArea, self.drawPolygon = [], [], [], [], [], []
         # Draw Polygon Canvas Rubberband
         self.poly_Canvas_RubberBand = QgsRubberBand(
-            iface.mapCanvas(), True)  # Polygon type
+            iface.mapCanvas(), QgsWkbTypes.PolygonGeometry)  # Polygon type
         # set rubber band style
         self.poly_Canvas_RubberBand.setColor(color_amber)
         self.poly_Canvas_RubberBand.setWidth(3)

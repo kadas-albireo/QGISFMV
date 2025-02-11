@@ -43,7 +43,7 @@ except ImportError:
 windows = platform.system() == 'Windows'
 
 if windows:
-    ffmpegConf = os.path.join(QgsApplication.applicationDirPath(), '..', 'opt', 'ffmpeg')
+    ffmpegConf = os.path.join(QgsApplication.applicationDirPath())
 else:
     ffmpegConf = '/usr/bin'
 

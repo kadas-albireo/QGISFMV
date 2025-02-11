@@ -385,7 +385,6 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
                                          '-ss', currentTime,
                                          '-to', nextTime,
                                          '-map', '0:d:'+str(klv_index),
-                                         '-preset', 'ultrafast',
                                          '-f', 'data', '-'])
                                          
         stdout_data, _ = p.communicate()

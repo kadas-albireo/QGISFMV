@@ -485,7 +485,7 @@ class DrawToolBar(object):
         magnifierSize = min(MAX_MAGNIFIER, dim * 2 / 3)
         radius = int(magnifierSize / 2)
         ring = radius - 15
-        box = QSize(magnifierSize, magnifierSize)
+        box = QSize(int(magnifierSize), int(magnifierSize))
 
         center = dragPos - QPoint(0, radius)
         center += QPoint(0, int(radius / 2))
