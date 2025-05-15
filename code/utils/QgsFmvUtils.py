@@ -852,7 +852,7 @@ def _spawn(cmds, t="ffmpeg"):
         cmds.insert(0, ffprobe_path)
     
     
-    qgsu.showUserAndLogMessage("", "spawned : " + " ".join(cmds), onlyLog=True)
+    #qgsu.showUserAndLogMessage("", "spawned : " + " ".join(cmds), onlyLog=True)
     
     return subprocess.Popen(cmds, shell=windows, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             bufsize=0,
