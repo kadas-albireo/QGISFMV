@@ -117,8 +117,6 @@ def AddDrawPointOnMap(pointIndex, Longitude, Latitude, Altitude):
     textItem = KadasTextItem( QgsCoordinateReferenceSystem("EPSG:4326") )
     textItem.setText( str(pointIndex) );
     textItem.setPosition( KadasItemPos.fromPoint(QgsPointXY(Longitude, Latitude)) )
-    textItem.setAnchorX( 0 )
-    textItem.setAnchorY( 1.0 )
     KadasMapCanvasItemManager.addItem( textItem )
     pointsLblEle.append(textItem)
     
