@@ -4,7 +4,6 @@ from os.path import dirname, abspath
 from qgis.PyQt.QtGui import QColor, QFont, QPolygonF, QPen, QPainter, QBrush, qRgba
 from qgis.PyQt.QtWidgets import QApplication
 from qgis.PyQt.QtCore import QCoreApplication, QPointF, Qt
-#from qgis.PyQt.QtCore.Qt import *
 
 from configparser import ConfigParser
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
@@ -36,13 +35,8 @@ from qgis.core import (QgsPalLayerSettings,
 
 from qgis.utils import iface
 from QGIS_FMV.utils.QgsFmvStyles import FmvLayerStyles as S
-from kadas._kadasgui import *
+from kadas._kadasgui import (KadasSymbolItem, KadasItemPos, KadasMapCanvasItemManager, KadasPointItem, KadasPolygonItem, KadasTextItem, KadasLineItem)
 from itertools import groupby
-#from qgis._3d import (QgsPhongMaterialSettings,
-#                      QgsVectorLayer3DRenderer,
-#                      QgsLine3DSymbol,
-#                      QgsPoint3DSymbol,
-#                      QgsPolygon3DSymbol)
 
 try:
     from pydevd import *
@@ -51,16 +45,6 @@ except ImportError:
 
 parser = ConfigParser()
 parser.read(os.path.join(dirname(dirname(abspath(__file__))), 'settings.ini'))
-
-#Platform_lyr = parser['LAYERS']['Platform_lyr']
-#Beams_lyr = parser['LAYERS']['Beams_lyr']
-#Footprint_lyr = parser['LAYERS']['Footprint_lyr']
-#FrameCenter_lyr = parser['LAYERS']['FrameCenter_lyr']
-#FrameAxis_lyr = parser['LAYERS']['FrameAxis_lyr']
-#Point_lyr = parser['LAYERS']['Point_lyr']
-#Line_lyr = parser['LAYERS']['Line_lyr']
-#Polygon_lyr = parser['LAYERS']['Polygon_lyr']
-#Trajectory_lyr = parser['LAYERS']['Trajectory_lyr']
 
 frames_g = parser['LAYERS']['frames_g']
 epsg = parser['LAYERS']['epsg']
