@@ -21,8 +21,8 @@
  *                                                                         *
  ***************************************************************************/
 """
+from kadas.kadasgui import (KadasPluginInterface, KadasBottomBar)
 import os.path
-
 from qgis.PyQt.QtCore import (QSettings,
                               QCoreApplication,
                               QTranslator,
@@ -35,14 +35,7 @@ from QGIS_FMV.utils.QgsFmvLog import log
 from qgis.PyQt.QtCore import Qt
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.core import QgsApplication
-from kadas.kadasgui import *
 from QGIS_FMV.utils.KadasFmvLayers import RemoveAllDrawings
-
-try:
-    from pydevd import *
-except ImportError:
-    None
-
 
 class Fmv:
     """ Main Class """
@@ -176,3 +169,4 @@ class Fmv:
             self._FMVManager.hide()
         if self.bottomBar:
             self.bottomBar.hide()
+
