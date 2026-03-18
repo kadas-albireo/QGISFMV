@@ -9,7 +9,7 @@ from qgis.PyQt.QtGui import (QPainter,
                          QBrush,
                          QPolygonF)
 
-from PyQt5.QtGui import QImage
+from qgis.PyQt.QtGui import QImage
 
 from QGIS_FMV.geo import sphere
 from QGIS_FMV.utils.QgsFmvUtils import (GetSensor,
@@ -39,7 +39,7 @@ PolyBrush = QBrush(QColor(252, 215, 108, 100))
 
 # Point Draw
 PointWidth = 10
-PointPen = QPen(QColor(220, 20, 60), PointWidth, cap=Qt.RoundCap)
+PointPen = QPen(QColor(220, 20, 60), PointWidth, cap=Qt.PenCapStyle.RoundCap)
 
 # Line Draw
 LineWidth = 3
@@ -47,7 +47,7 @@ LinePen = QPen(QColor(252, 215, 108), LineWidth)
 
 # Measure Draw
 MeasureWidth = 3
-MeasurePen = QPen(QColor(185, 224, 175), MeasureWidth, cap=Qt.RoundCap, join=Qt.RoundJoin)
+MeasurePen = QPen(QColor(185, 224, 175), MeasureWidth, cap=Qt.PenCapStyle.RoundCap, join=Qt.PenJoinStyle.RoundJoin)
 MeasureBrush = QBrush(QColor(185, 224, 175, 100))
 
 
@@ -56,19 +56,19 @@ class DrawToolBar(object):
     NameSpace = getNameSpace()
 
     small_pt = 5
-    white_pen = QPen(Qt.white, small_pt)
-    white_pen.setCapStyle(Qt.RoundCap)
+    white_pen = QPen(Qt.GlobalColor.white, small_pt)
+    white_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
-    black_pen = QPen(Qt.black, small_pt)
-    black_pen.setCapStyle(Qt.RoundCap)
+    black_pen = QPen(Qt.GlobalColor.black, small_pt)
+    black_pen.setCapStyle(Qt.PenCapStyle.RoundCap)
 
     glass_pen = QPen(QColor(192, 192, 192, 128), 3)
 
-    transparent_brush = QBrush(Qt.transparent)
+    transparent_brush = QBrush(Qt.GlobalColor.transparent)
 
-    black_brush = QBrush(Qt.black)
+    black_brush = QBrush(Qt.GlobalColor.black)
 
-    bold_12 = QFont("Arial", 12, QFont.Bold)
+    bold_12 = QFont("Arial", 12, QFont.Weight.Bold)
 
     # Stamp Image
     confidential = QPixmap.fromImage(QImage(":/imgFMV/images/stamp/confidential.png"))
@@ -119,7 +119,7 @@ class DrawToolBar(object):
         if poly_p is not None:
             global PolyPen
             PolyPen = QPen(QColor(poly_p))
-            PolyPen.setCapStyle(Qt.RoundCap)
+            PolyPen.setCapStyle(Qt.PenCapStyle.RoundCap)
             PolyPen.setWidth(PolyWidth)
             if options is not None:
                 options.poly_pen.setColor(QColor(poly_p))
@@ -142,7 +142,7 @@ class DrawToolBar(object):
         if point_p is not None:
             global PointPen
             PointPen = QPen(QColor(point_p))
-            PointPen.setCapStyle(Qt.RoundCap)
+            PointPen.setCapStyle(Qt.PenCapStyle.RoundCap)
             PointPen.setWidth(PointWidth)
             if options is not None:
                 options.point_pen.setColor(QColor(point_p))
@@ -158,7 +158,7 @@ class DrawToolBar(object):
         if line_p is not None:
             global LinePen
             LinePen = QPen(QColor(line_p))
-            LinePen.setCapStyle(Qt.RoundCap)
+            LinePen.setCapStyle(Qt.PenCapStyle.RoundCap)
             LinePen.setWidth(LineWidth)
             if options is not None:
                 options.lines_pen.setColor(QColor(line_p))
@@ -174,7 +174,7 @@ class DrawToolBar(object):
         if measure_p is not None:
             global MeasurePen
             MeasurePen = QPen(QColor(measure_p))
-            MeasurePen.setCapStyle(Qt.RoundCap)
+            MeasurePen.setCapStyle(Qt.PenCapStyle.RoundCap)
             MeasurePen.setWidth(MeasureWidth)
             if options is not None:
                 options.measures_pen.setColor(QColor(measure_p))
@@ -455,9 +455,9 @@ class DrawToolBar(object):
 
         # Area
         if a_value >= 10000:
-            painter.drawText(centroid, str(round(a_value / 1000000, 2)) + " km²")
+            painter.drawText(centroid, str(round(a_value / 1000000, 2)) + " km�")
         else:
-            painter.drawText(centroid, str(round(a_value, 2)) + " m²")
+            painter.drawText(centroid, str(round(a_value, 2)) + " m�")
         return
 
     @staticmethod
@@ -495,10 +495,10 @@ class DrawToolBar(object):
 
         # only set the dimension to the magnified portion
         zoomPixmap = QPixmap(box)
-        zoomPixmap.fill(Qt.black)
+        zoomPixmap.fill(Qt.GlobalColor.black)
 
         painter_p = QPainter(zoomPixmap)
-        painter_p.setRenderHint(QPainter.HighQualityAntialiasing)
+        painter_p.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter_p.translate(-xy)
         painter_p.scale(MAX_FACTOR, MAX_FACTOR)
         painter_p.drawImage(widget.surface.videoRect(), source, widget.surface.sourceRect())

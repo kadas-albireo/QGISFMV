@@ -25,7 +25,7 @@ from qgis.PyQt.QtWidgets import (QToolTip,
                                  QToolBar)
 from qgis.core import Qgis as QGis, QgsTask, QgsApplication, QgsRasterLayer, QgsProject, QgsLayerTreeGroup
 
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+from qgis.PyQt.QtMultimedia import QMediaPlayer, QMediaContent
 
 from QGIS_FMV.converter.Converter import Converter
 from QGIS_FMV.gui.ui_FmvPlayer import Ui_PlayerWindow
@@ -182,7 +182,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.volumeSlider.enterEvent = self.showVolumeTip
 
         self.metadataDlg = QgsFmvMetadata(player=self)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.metadataDlg)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.metadataDlg)
         self.metadataDlg.setMinimumWidth(500)
         self.metadataDlg.hide()
 
@@ -197,7 +197,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             setCenterMode(3, self.iface)
         
         #disable context menu
-        self.menubarwidget.setContextMenuPolicy(Qt.NoContextMenu)
+        self.menubarwidget.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         #disable toolbar floating around main window
         self.DrawToolBar.setFloatable(False) 
         
@@ -504,14 +504,14 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     def showColorDialog(self):
         ''' Show Color dialog '''
         self.ColorDialog = ColorDialog(parent=self)
-        self.ColorDialog.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+        self.ColorDialog.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
         # Fail if not uncheked
         self.actionMagnifying_glass.setChecked(False)
-        self.ColorDialog.exec_()
+        self.ColorDialog.exec()
         QApplication.processEvents()
         self.ColorDialog.contrastSlider.setValue(80)
         self.ColorDialog.contrastSlider.triggerAction(
-            QAbstractSlider.SliderMove)
+            QAbstractSlider.SliderAction.SliderMove)
         return
 
     def createMosaic(self, value):
@@ -534,7 +534,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             action.setChecked(toolbar.isVisible())
             action.setObjectName(toolbar.windowTitle())
             action.triggered.connect(lambda _: self.ToggleQToolBar())
-        menu.exec_(self.mapToGlobal(point))
+        menu.exec(self.mapToGlobal(point))
         return
 
     def ToggleQToolBar(self):
@@ -578,10 +578,10 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         #actionOptions.triggered.connect(self.OpenOptions)
         
         if not self.videoWidget.isFullScreen():
-            menu.exec_(self.mapToGlobal(point))
+            menu.exec(self.mapToGlobal(point))
         else:
             scr = QApplication.desktop().screenNumber(self)
-            menu.exec_(QPoint(point.x() + scr * QApplication.desktop().screenGeometry(scr).width(), point.y()))
+            menu.exec(QPoint(point.x() + scr * QApplication.desktop().screenGeometry(scr).width(), point.y()))
     
     def currentMediaChanged(self, media):
    
@@ -1140,7 +1140,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         if status in (QMediaPlayer.LoadingMedia,
                       QMediaPlayer.BufferingMedia,
                       QMediaPlayer.StalledMedia):
-            self.setCursor(Qt.BusyCursor)
+            self.setCursor(Qt.CursorShape.BusyCursor)
         else:
             self.unsetCursor()
 
@@ -1470,7 +1470,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
                         QCoreApplication.translate("QgsFmvPlayer", "Information"),
                         QCoreApplication.translate("QgsFmvPlayer", "Do you want to load the layer?"),
                         icon="Information")
-                    if buttonReply == QMessageBox.Yes:
+                    if buttonReply == QMessageBox.StandardButton.Yes:
                         file = result['file']
                         root, _ = os.path.splitext(file)
                         layer = QgsRasterLayer(file, root)
@@ -1485,7 +1485,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         """ Extract All Video Frames Task """
         directory = askForFolder(self, QCoreApplication.translate(
             "QgsFmvPlayer", "Save all Frames"),
-            options=QFileDialog.DontResolveSymlinks | QFileDialog.ShowDirsOnly)
+            options=QFileDialog.Option.DontResolveSymlinks | QFileDialog.Option.ShowDirsOnly)
 
         if directory:
             taskExtractAllFrames = QgsTask.fromFunction('Save All Frames Task',
@@ -1553,7 +1553,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         position = str(self.player.position())
         directory = askForFolder(self, QCoreApplication.translate(
             "QgsFmvPlayer", "Save Current Georeferenced Frame"),
-            options=QFileDialog.DontResolveSymlinks | QFileDialog.ShowDirsOnly)
+            options=QFileDialog.Option.DontResolveSymlinks | QFileDialog.Option.ShowDirsOnly)
 
         if not directory:
             return
@@ -1608,7 +1608,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         """ Open Metadata Dock """
         if self.metadataDlg is None:
             self.metadataDlg = QgsFmvMetadata(player=self)
-            self.addDockWidget(Qt.RightDockWidgetArea, self.metadataDlg)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.metadataDlg)
             self.metadataDlg.show()
         else:
             self.metadataDlg.show()
@@ -1619,7 +1619,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     def OpenOptions(self):
         """ Open Options Dialog """
         self.Options = FmvOptions()
-        self.Options.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+        self.Options.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
         self.Options.show()
 
     def showVideoInfoDialog(self, outjson):
@@ -1632,7 +1632,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         view.setModel(model)
         model.loadJsonFromConsole(outjson)
 
-        self.VideoInfoDialog = QDialog(self, Qt.Window | Qt.WindowCloseButtonHint)
+        self.VideoInfoDialog = QDialog(self, Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
         self.VideoInfoDialog.setWindowTitle(QCoreApplication.translate(
             "QgsFmvPlayer", "Video Information : ") + self.fileName)
         self.VideoInfoDialog.setWindowIcon(
@@ -1641,7 +1641,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.verticalLayout = QVBoxLayout(self.VideoInfoDialog)
         self.verticalLayout.addWidget(view)
         view.expandAll()
-        view.header().setSectionResizeMode(QHeaderView.ResizeToContents)
+        view.header().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
 
         self.VideoInfoDialog.resize(500, 400)
         self.VideoInfoDialog.show()

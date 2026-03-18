@@ -139,7 +139,7 @@ class Fmv:
                 self.run_once = True
                 self.bottomBar = KadasBottomBar( self.iface.mapCanvas() )
                 self.bottomBar.setLayout( QHBoxLayout() )
-                self.bottomBar.setSizePolicy( QSizePolicy.Expanding, QSizePolicy.Preferred )
+                self.bottomBar.setSizePolicy( QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred )
                 self._FMVManager = FmvManager(self.iface, self.actionFMV, self.actionShowHide)
                 self.bottomBar.layout().addWidget( self._FMVManager )
                 self.bottomBar.adjustSize()

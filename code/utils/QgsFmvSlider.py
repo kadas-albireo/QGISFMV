@@ -1,4 +1,4 @@
-from PyQt5 import QtCore, QtWidgets
+from qgis.PyQt import QtCore, QtWidgets
 from qgis.PyQt.QtCore import Qt, QObject, pyqtSignal
 
 class QgsFmvSlider(QtWidgets.QSlider):

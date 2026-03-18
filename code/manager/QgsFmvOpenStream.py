@@ -46,7 +46,7 @@ class OpenStream(QDialog, Ui_FmvOpenStream):
         if host != "" and port != "":
             qgsu.showUserAndLogMessage(QCoreApplication.translate(
                 "QgsFmvOpenStream", "Checking connection!"))
-            QApplication.setOverrideCursor(Qt.WaitCursor)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             QApplication.processEvents()
             # Check if connection exist
             cap = cv2.VideoCapture(v)
