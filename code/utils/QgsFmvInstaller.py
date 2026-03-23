@@ -59,7 +59,7 @@ else:
 DemGlobal = "http://www.gisandbeers.com/RRSS/Cartografia/ETOPO1.zip"
 
 progress = QProgressBar()
-progress.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+progress.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
 opener = build_opener()
 opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/36.0.1941.0 Safari/537.36')]

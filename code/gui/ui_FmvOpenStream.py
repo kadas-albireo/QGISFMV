@@ -14,7 +14,7 @@ class Ui_FmvOpenStream(object):
         FmvOpenStream.resize(355, 83)
         FmvOpenStream.setMinimumSize(QtCore.QSize(0, 0))
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/stream.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/stream.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.Off)
         FmvOpenStream.setWindowIcon(icon)
         FmvOpenStream.setLocale(QtCore.QLocale(QtCore.QLocale.English, QtCore.QLocale.UnitedStates))
         self.verticalLayout = QtWidgets.QVBoxLayout(FmvOpenStream)
