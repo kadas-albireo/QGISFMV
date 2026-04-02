@@ -25,12 +25,12 @@ class VideoWindow(QMainWindow):
         self.playButton.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
         self.playButton.clicked.connect(self.play)
 
-        self.positionSlider = QSlider(Qt.Horizontal)
+        self.positionSlider = QSlider(Qt.Orientation.Horizontal)
         self.positionSlider.setRange(0, 0)
         self.positionSlider.sliderMoved.connect(self.setPosition)
 
         self.errorLabel = QLabel()
-        self.errorLabel.setSizePolicy(QSizePolicy.Preferred,
+        self.errorLabel.setSizePolicy(QSizePolicy.Policy.Preferred,
                 QSizePolicy.Maximum)
 
         # Create new action

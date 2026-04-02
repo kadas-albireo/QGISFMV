@@ -8,12 +8,15 @@ from qgis.PyQt.QtCore import (QJsonDocument,
                               QVariant,
                               QCoreApplication,
                               QJsonParseError)
+from qgis.core import Qgis
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 try:
     from pydevd import *
 except ImportError:
     None
 
+if Qgis.QGIS_VERSION_INT < 40000:
+    NULL = QVariant()
 
 class QJsonTreeItem(object):
     """ Json TreeView Class """

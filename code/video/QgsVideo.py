@@ -100,7 +100,7 @@ class VideoWidgetSurface(QAbstractVideoSurface):
         super().__init__()
 
         self.widget = widget
-        self.imageFormat = QImage.Format_Invalid
+        self.imageFormat = QImage.Format.Format_Invalid
         self.image = None
 
     def supportedPixelFormats(self, handleType=QAbstractVideoBuffer.NoHandle):
@@ -122,7 +122,7 @@ class VideoWidgetSurface(QAbstractVideoSurface):
             _format.pixelFormat())
         size = _format.frameSize()
         _bool = False
-        if (imageFormat != QImage.Format_Invalid and not
+        if (imageFormat != QImage.Format.Format_Invalid and not
             size.isEmpty() and
                 _format.handleType() == QAbstractVideoBuffer.NoHandle):
             _bool = True
@@ -133,7 +133,7 @@ class VideoWidgetSurface(QAbstractVideoSurface):
         imageFormat = QVideoFrame.imageFormatFromPixelFormat(
             _format.pixelFormat())
         size = _format.frameSize()
-        if (imageFormat != QImage.Format_Invalid and not size.isEmpty()):
+        if (imageFormat != QImage.Format.Format_Invalid and not size.isEmpty()):
             self._sourceRect = _format.viewport()
             QAbstractVideoSurface.start(self, _format)
             self.imageFormat = imageFormat
@@ -234,21 +234,21 @@ class VideoWidget(QVideoWidget):
         ''' Constructor '''
         super().__init__(parent)
         self.surface = VideoWidgetSurface(self)
-        self.setAttribute(Qt.WA_OpaquePaintEvent)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
 
-        self.Tracking_Video_RubberBand = QRubberBand(QRubberBand.Rectangle, self)
-        self.Censure_RubberBand = QRubberBand(QRubberBand.Rectangle, self)
+        self.Tracking_Video_RubberBand = QRubberBand(QRubberBand.Shape.Rectangle, self)
+        self.Censure_RubberBand = QRubberBand(QRubberBand.Shape.Rectangle, self)
 
-        color_blue = QColor(Qt.blue)
-        color_black = QColor(Qt.black)
+        color_blue = QColor(Qt.GlobalColor.blue)
+        color_black = QColor(Qt.GlobalColor.black)
         color_amber = QColor(252, 215, 108)
 
         pal_blue = QPalette()
-        pal_blue.setBrush(QPalette.Highlight, QBrush(color_blue))
+        pal_blue.setBrush(QPalette.ColorRole.Highlight, QBrush(color_blue))
         self.Tracking_Video_RubberBand.setPalette(pal_blue)
 
         pal_black = QPalette()
-        pal_black.setBrush(QPalette.Highlight, QBrush(color_black))
+        pal_black.setBrush(QPalette.ColorRole.Highlight, QBrush(color_black))
         self.Censure_RubberBand.setPalette(pal_black)
 
         self._interaction = InteractionState()
@@ -283,7 +283,7 @@ class VideoWidget(QVideoWidget):
         self.parent = parent.parent()
 
         palette = self.palette()
-        palette.setColor(QPalette.Background, Qt.transparent)
+        palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.setPalette(palette)
 
         self.origin, self.dragPos = QPoint(), QPoint()
