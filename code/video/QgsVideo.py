@@ -13,12 +13,30 @@ from qgis.core import QgsProject, QgsPointXY, QgsWkbTypes, QgsCoordinateReferenc
 from qgis.gui import QgsRubberBand
 from qgis.utils import iface
 
-from PyQt5.QtMultimedia import (QAbstractVideoBuffer,
+try:
+    from PyQt5.QtMultimediaWidgets import QVideoWidget
+    from PyQt5.QtMultimedia import (QAbstractVideoBuffer,
                                 QVideoFrame,
                                 QAbstractVideoSurface,
                                 QMediaPlayer)
-from PyQt5.QtMultimediaWidgets import QVideoWidget
-from PyQt5.QtWidgets import QApplication
+except:
+    from PyQt6.QtMultimedia import (
+                                QVideoFrame,
+                                QMediaPlayer)
+    
+    class QAbstractVideoBuffer:
+        NoHandle = 0 
+        
+        """stub class"""
+        pass
+    
+    class QAbstractVideoSurface:
+        """stub class"""
+        pass
+
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+
+from qgis.PyQt.QtWidgets import QApplication
 
 from QGIS_FMV.geo import mgrs
 from QGIS_FMV.player.QgsFmvDrawToolBar import DrawToolBar as draw

@@ -1,13 +1,16 @@
 # PyQt5 Video player
 #!/usr/bin/env python
 
-from PyQt5.QtCore import QDir, Qt, QUrl, QFile, QBuffer, QIODevice
-from PyQt5.QtMultimedia import QMediaContent, QMediaPlayer
-from PyQt5.QtMultimediaWidgets import QVideoWidget
-from PyQt5.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel,
+from qgis.PyQt.QtCore import QDir, Qt, QUrl, QFile, QBuffer, QIODevice
+from qgis.PyQt.QtMultimedia import  QMediaPlayer
+try:
+    from PyQt5.QtMultimediaWidgets import QVideoWidget
+except:
+    from PyQt6.QtMultimediaWidgets import QVideoWidget
+from qgis.PyQt.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel,
         QPushButton, QSizePolicy, QSlider, QStyle, QVBoxLayout, QWidget)
-from PyQt5.QtWidgets import QMainWindow,QWidget, QPushButton, QAction
-from PyQt5.QtGui import QIcon
+from qgis.PyQt.QtWidgets import QMainWindow,QWidget, QPushButton, QAction
+from qgis.PyQt.QtGui import QIcon
 import sys
 
 class VideoWindow(QMainWindow):
