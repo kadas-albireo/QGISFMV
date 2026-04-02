@@ -25,7 +25,7 @@ from qgis.PyQt.QtWidgets import (QToolTip,
                                  QToolBar)
 from qgis.core import Qgis as QGis, QgsTask, QgsApplication, QgsRasterLayer, QgsProject, QgsLayerTreeGroup
 
-from qgis.PyQt.QtMultimedia import QMediaPlayer, QMediaContent
+from qgis.PyQt.QtMultimedia import QMediaPlayer
 
 from QGIS_FMV.converter.Converter import Converter
 from QGIS_FMV.gui.ui_FmvPlayer import Ui_PlayerWindow
@@ -69,6 +69,9 @@ try:
 except Exception as e:
     qgsu.showUserAndLogMessage(QCoreApplication.translate(
         "VideoProcessor", "Error: Missing OpenCV packages"))
+
+
+# Ui_PlayerWindow, _ = loadUiType(os.path.join(os.path.dirname(__file__), "../ui", "ui_FmvPlayer.ui"))
 
 class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     """ Video Player Class """
@@ -1011,16 +1014,17 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         if rewindTime < 0:
             rewindTime = 0
         self.player.setPosition(rewindTime)
-
-    def AutoRepeat(self, checked):
-        '''Button AutoRepeat Video
-        @param checked: Button checked state
-        '''
-        if checked:
-            self.player.playlist.setPlaybackMode(QMediaPlaylist.Loop)
-        else:
-            self.player.playlist.setPlaybackMode(QMediaPlaylist.Sequential)
-        return
+        
+    # Actually never connected to any signal 
+    # def AutoRepeat(self, checked):
+    #     '''Button AutoRepeat Video
+    #     @param checked: Button checked state
+    #     '''
+    #     if checked:
+    #         self.player.playlist.setPlaybackMode(QMediaPlaylist.Loop)
+    #     else:
+    #         self.player.playlist.setPlaybackMode(QMediaPlaylist.Sequential)
+    #     return
 
     def showVolumeTip(self, _):
         '''Volume Slider Tooltip Trick
@@ -1162,8 +1166,18 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             #qgsu.showUserAndLogMessage("", "EndOfMedia and playlist end entred", onlyLog=False)
             self.videoAvailableChanged(False)
             self.fakeStop()
+        elif status == QMediaPlayer.EndOfMedia:
+            self.player.setMedia(self.parent.playlist.next())
+            # self.player.setSource(self.parent.playlist.next())
+            self.player.play()
+            self.videoAvailableChanged(True)
         else:
             self.videoAvailableChanged(True)
+
+    def setPlaylist(self, playlist):
+        playlist.setCurrentIndex(1)
+        self.player.setMedia(playlist.media(0))
+        # self.player.setSource(playlist.medias(0))
 
     def playFile(self, videoPath, islocal=False, klv_folder=None):
         ''' Play file from path

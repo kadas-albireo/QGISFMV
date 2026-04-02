@@ -13,6 +13,7 @@ from qgis.PyQt.QtWidgets import (QDockWidget,
                                  QVBoxLayout,
                                  QWidget)
 import qgis.utils
+from qgis.core import Qgis
 
 from qgis.PyQt.QtGui import QColor
 
@@ -21,7 +22,7 @@ from QGIS_FMV.converter.ffmpeg import FFMpeg
 from QGIS_FMV.gui.ui_FmvManager import Ui_ManagerWindow
 from QGIS_FMV.manager.QgsMultiplexor import Multiplexor
 from QGIS_FMV.manager.QgsFmvOpenStream import OpenStream
-from QGIS_FMV.player.QgsFmvPlayer import QgsFmvPlayer, QMediaContent
+from QGIS_FMV.player.QgsFmvPlayer import QgsFmvPlayer
 from QGIS_FMV.utils.QgsFmvUtils import (askForFiles,
                                         BufferedMetaReader,
                                         StreamMetaReader,
@@ -36,7 +37,6 @@ from QGIS_FMV.utils.QgsFmvUtils import (askForFiles,
                                         getVideoLocationInfo)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.core import QgsPointXY, QgsCoordinateReferenceSystem, QgsProject, QgsCoordinateTransform, Qgis as QGis
-from qgis.PyQt.QtMultimedia import QMediaPlaylist
 
 
 try:
@@ -47,6 +47,68 @@ except ImportError:
 s = QSettings()
 parser = ConfigParser()
 parser.read(os.path.join(dirname(dirname(abspath(__file__))), 'settings.ini'))
+
+
+class QMediaPlaylist:
+    """
+    Drop in replacement for Qt 5 QMediaPlaylist
+    this is not a 1-to-1 remplacement, the philosophy:
+    * A minimalistic approch is used to only implement methods as needed
+    * as some api like QMediaContent have been removed and are remplaced here
+    """
+
+    def __init__(self):
+        self._index = -1
+        self._medias = []
+
+    def setCurrentIndex(self, index):
+        if index < 0 or index >= self.mediaCount():
+            self._index = -1
+        
+        self._index = index
+
+    def addMedia(self, mediaUrl):
+        self._medias.append(mediaUrl)
+
+    def removeMedia(self, idx):
+        if idx <= self._index:
+            self._index -= 1 
+        self._medias.pop(idx)
+
+    def mediaCount(self):
+        return len(self._medias)
+    
+    def media(self, idx):
+        return self._medias[idx]
+
+    def currentIndex(self):
+        return self._index
+    
+    def nextIndex(self):
+        if self._index == -1:
+            return -1  
+        r = self._index + 1
+        if 0 <= r <= self.mediaCount():
+            return r
+        return -1
+
+    def next(self):
+        try:
+            return self._medias[self._index + 1]
+        except:
+            return None
+        
+    def isFileInPlaylist(self, filename):
+        for x in range(self.mediaCount()):
+            try:
+                if filename in self.playlist.media(x).canonicalUrl().toString():
+                    return True
+            except:
+                if filename in self.playlist.media(x).toString():
+                    return True
+        return False
+    
+
 
 class FmvManager(QWidget, Ui_ManagerWindow):
     ''' Video Manager '''
@@ -319,8 +381,14 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         else:
             url = QUrl.fromLocalFile(filename)
         
-        self.playlist.addMedia(QMediaContent(url))
         
+        if Qgis.QGIS_VERSION_INT < 40000:
+            # Remove once Kadas 2.3 is out of use
+            from qgis.PyQt.QtMultimedia import QMediaContent
+            self.playlist.addMedia(QMediaContent(url))
+        else:
+            self.playlist.addMedia(url)
+            
         if self.videoPlayable[rowPosition]:
             pbar.setValue(100)
             if islocal:
@@ -355,11 +423,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     
     
     def isFileInPlaylist(self, filename):
-        mcount = self.playlist.mediaCount()
-        for x in range(mcount):
-            if filename in self.playlist.media(x).canonicalUrl().toString():
-                return True
-        return False
+        return self.playlist.isFileInPlaylist(filename)
     
     def PlayVideoFromManager(self, model):
         ''' Play video from manager dock.
@@ -432,7 +496,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self._PlayerDlg = QgsFmvPlayer(self.iface, path, interval, parent=self, meta_reader=self.meta_reader[
             row], pass_time=self.pass_time, islocal=islocal, klv_folder=klv_folder)
                     
-        self._PlayerDlg.player.setPlaylist(self.playlist)
+        self._PlayerDlg.setPlaylist(self.playlist)
         self._PlayerDlg.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint)
         self._PlayerDlg.show()
         self._PlayerDlg.activateWindow()
