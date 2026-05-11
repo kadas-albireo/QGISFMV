@@ -7,7 +7,7 @@ class QgsFmvSlider(QtWidgets.QSlider):
          
     def mousePressEvent(self, event):
         super(QgsFmvSlider, self).mousePressEvent(event)
-        if event.button() == QtCore.Qt.LeftButton:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
             val = self.pixelPosToRangeValue(event.pos())
             self.setValue(val)
             self.mousePressed.emit(val)
@@ -15,8 +15,8 @@ class QgsFmvSlider(QtWidgets.QSlider):
     def pixelPosToRangeValue(self, pos):
         opt = QtWidgets.QStyleOptionSlider()
         self.initStyleOption(opt)
-        gr = self.style().subControlRect(QtWidgets.QStyle.CC_Slider, opt, QtWidgets.QStyle.SC_SliderGroove, self)
-        sr = self.style().subControlRect(QtWidgets.QStyle.CC_Slider, opt, QtWidgets.QStyle.SC_SliderHandle, self)
+        gr = self.style().subControlRect(QtWidgets.QStyle.ComplexControl.CC_Slider, opt, QtWidgets.QStyle.SubControl.SC_SliderGroove, self)
+        sr = self.style().subControlRect(QtWidgets.QStyle.ComplexControl.CC_Slider, opt, QtWidgets.QStyle.SubControl.SC_SliderHandle, self)
 
         if self.orientation() == QtCore.Qt.Orientation.Horizontal:
             sliderLength = sr.width()

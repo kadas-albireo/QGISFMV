@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from qgis.PyQt.QtCore import Qt, QRect, QPoint, QEvent, QBasicTimer, QSize
+from qgis.PyQt.QtCore import Qt, QRect, QPoint, QEvent, QBasicTimer, QSize, QPointF
 from qgis.PyQt.QtGui import (QImage,
                              QPalette,
                              QPainter,
@@ -7,7 +7,8 @@ from qgis.PyQt.QtGui import (QImage,
                              QColor,
                              QBrush,
                              QCursor,
-                             QMouseEvent)
+                             QMouseEvent,
+                             QImage)
 from qgis.PyQt.QtWidgets import QRubberBand
 from qgis.core import QgsProject, QgsPointXY, QgsWkbTypes, QgsCoordinateReferenceSystem, QgsCoordinateTransform
 from qgis.gui import QgsRubberBand
@@ -21,6 +22,7 @@ try:
                                 QMediaPlayer)
 except:
     from PyQt6.QtMultimedia import (
+                                QVideoSink,
                                 QVideoFrame,
                                 QMediaPlayer)
     
@@ -110,7 +112,128 @@ class FilterState(object):
             return True
         return False
 
+class VideoWidgetSink(QVideoSink):
+    def __init__(self, widget, parent=None):
+        super().__init__(parent)
 
+        self.widget = widget
+        self._currentFrame:QVideoFrame = None
+        # self.updateVideoRect()
+        self.videoFrameChanged.connect(self.onVideoFrameChanged)
+
+    def onVideoFrameChanged(self, frame):
+        # print("Debug: on Video frame changed")
+        self._currentFrame = frame
+        self.widget.updateGeometry()
+        self.widget.update()
+         
+
+    def videoRect(self):
+        ''' Get Video Rectangle '''
+        return self._targetRect
+
+    # def sourceRect(self):
+    #     ''' Get Source Rectangle '''
+    #     return self._sourceRect
+
+    def updateVideoRect(self):
+        ''' Update video rectangle '''
+        if self._currentFrame is None:
+            return QSize(0, 0)
+        size = self._currentFrame.size()
+        size.scale(self.widget.size().boundedTo(size), Qt.AspectRatioMode.KeepAspectRatio)
+        self._targetRect = QRect(QPoint(0, 0), size)
+        self._targetRect.moveCenter(self.widget.rect().center())
+ 
+    def sizeHint(self):
+        ''' This property holds the recommended size for the widget '''
+        if self._currentFrame is None:
+            return QSize(0, 0)
+        return self._currentFrame.size()
+    
+    def isActive(self):
+        return self._currentFrame is not None and self._currentFrame.isValid()
+
+    def paint(self, painter):
+        ''' Paint Frame'''
+
+        if self._currentFrame is None or not self._currentFrame.isValid():
+            print("Early return ? ")
+            return
+        print("inside paint 1")
+
+        print("target rect:", self._targetRect)
+        
+        if (self._currentFrame.map(QVideoFrame.MapMode.ReadOnly)):
+            oldTransform = painter.transform()
+            painter.setTransform(oldTransform)
+        print("inside paint 1.5")
+        try:
+            # planecount = self._currentFrame.planeCount()
+            # self.image = QImage(self._currentFrame.bits(planecount),
+            #                     self._currentFrame.width(),
+            #                     self._currentFrame.height(),
+            #                     self._currentFrame.bytesPerLine(planecount),
+            #                     self.imageFormat
+            #                     )
+            self.image = self._currentFrame.toImage()
+            print("image:", self.image)
+        except Exception as e:
+            print(e)
+
+        print("inside paint 2")
+
+        if self.widget._filterSatate.grayColorFilter:
+            self.image = filter.GrayFilter(self.image)
+
+        if self.widget._filterSatate.MirroredHFilter:
+            self.image = filter.MirrredFilter(self.image)
+
+        if self.widget._filterSatate.monoFilter:
+            self.image = filter.MonoFilter(self.image)
+
+        if self.widget._filterSatate.invertColorFilter:
+            self.image.invertPixels()
+
+        # TODO : Test in other thread
+        if self.widget._filterSatate.edgeDetectionFilter:
+            try:
+                self.image = filter.EdgeFilter(self.image)
+            except Exception:
+                None
+        # TODO : Test in other thread
+        if self.widget._filterSatate.contrastFilter:
+            try:
+                self.image = filter.AutoContrastFilter(self.image)
+            except Exception:
+                None
+
+        # TODO : Test in other thread
+        if self.widget._filterSatate.NDVI:
+            try:
+                self.image = filter.NDVIFilter(self.image)
+            except Exception:
+                None
+
+
+        print("inside paint 3")
+        painter.drawImage(self._targetRect, self.image) #, self._sourceRect)
+
+        # from datetime import datetime
+        # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        # r = self.image.save(f"C:/Users/Valentin/Documents/ouput_debug_fmv/frame_{timestamp}.png")
+        # if r:
+        #     print(f"Debug: Frame saved successfully as frame_{timestamp}.png")
+        # else:
+        #     print("error saving image")
+        # # image = QImage(400, 300, QImage.Format.Format_ARGB32)
+        # print("Debug: Saving current frame to debug_image.png")
+        # debug_image = QImage(400, 300, QImage.Format.Format_ARGB32)
+        # painter.drawImage(self._targetRect, debug_image) #, self._sourceRect)
+        # debug_image.save(r"C:\Users\Valentin\Documents\kadas\debug_image.png")
+
+        self._currentFrame.unmap()
+        return
 class VideoWidgetSurface(QAbstractVideoSurface):
 
     def __init__(self, widget):
@@ -193,7 +316,7 @@ class VideoWidgetSurface(QAbstractVideoSurface):
     def updateVideoRect(self):
         ''' Update video rectangle '''
         size = self.surfaceFormat().sizeHint()
-        size.scale(self.widget.size().boundedTo(size), Qt.KeepAspectRatio)
+        size.scale(self.widget.size().boundedTo(size), Qt.AspectRatioMode.KeepAspectRatio)
         self._targetRect = QRect(QPoint(0, 0), size)
         self._targetRect.moveCenter(self.widget.rect().center())
 
@@ -251,7 +374,8 @@ class VideoWidget(QVideoWidget):
     def __init__(self, parent=None):
         ''' Constructor '''
         super().__init__(parent)
-        self.surface = VideoWidgetSurface(self)
+        # self.surface = VideoWidgetSurface(self)
+        self.surface = VideoWidgetSink(self)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
 
         self.Tracking_Video_RubberBand = QRubberBand(QRubberBand.Shape.Rectangle, self)
@@ -427,10 +551,10 @@ class VideoWidget(QVideoWidget):
         :param event:
         :return:
         '''
-        if event.key() == Qt.Key_Escape and self.isFullScreen():
+        if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
             self.setFullScreen(False)
             event.accept()
-        elif event.key() == Qt.Key_Enter and event.modifiers() & Qt.Key_Alt:
+        elif event.key() == Qt.Key.Key_Enter and event.modifiers() & Qt.Key_Alt:
             self.setFullScreen(not self.isFullScreen())
             event.accept()
         else:
@@ -446,7 +570,7 @@ class VideoWidget(QVideoWidget):
         if GetImageHeight() == 0:
             return
 
-        if(not vut.IsPointOnScreen(event.x(), event.y(), self.surface)):
+        if(not vut.IsPointOnScreen(event.position().x(), event.position().y(), self.surface)):
             return
 
         if GetGCPGeoTransform() is not None and self._interaction.lineDrawer:
@@ -491,14 +615,14 @@ class VideoWidget(QVideoWidget):
 
     def UpdateSurface(self):
         ''' Update Video Surface only is is stopped or paused '''
-        if self.parent.playerState in (QMediaPlayer.StoppedState,
-                                       QMediaPlayer.PausedState):
+        if self.parent.playerState in (QMediaPlayer.PlaybackState.StoppedState,
+                                       QMediaPlayer.PlaybackState.PausedState):
             self.update()
         QApplication.processEvents()
 
     def sizeHint(self):
         ''' This property holds the recommended size for the widget '''
-        return self.surface.surfaceFormat().sizeHint()
+        return self.surface.sizeHint()
 
     def currentFrame(self):
         ''' Return current frame QImage '''
@@ -636,17 +760,19 @@ class VideoWidget(QVideoWidget):
         @param event:
         @return:
         """
-        
-        if not self.surface.isActive():
-            return
+        print("paintEvent before isActive")
+        # if not self.surface.isActive():
+        #     return
+        print("paintEvent after isActive")
 
         self.painter = QPainter(self)
-        self.painter.setRenderHint(QPainter.HighQualityAntialiasing)
+        self.painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         region = event.region()
         self.painter.fillRect(region.boundingRect(), self.brush)  # Background painter color
 
         try:
+            print("call surface sink painter")
             self.surface.paint(self.painter)
             SetImageSize(self.currentFrame().width(),
                          self.currentFrame().height())
@@ -746,14 +872,14 @@ class VideoWidget(QVideoWidget):
         @return:
         """
         if event != None:
-            self.lastMouseX = event.x()
-            self.lastMouseY = event.y()
+            self.lastMouseX = event.position().x()
+            self.lastMouseY = event.position().y()
 
         if useLast and self.lastMouseX == -1 and self.lastMouseY == -1:
             return
         else:
             #generates an event that simulates a mouse move, because even if mouse is still, video is running and mouse lat/lon must be updated.
-            event = QMouseEvent(QEvent.MouseMove, QPoint(self.lastMouseX, self.lastMouseY), Qt.NoButton, Qt.NoButton, Qt.NoModifier)        
+            event = QMouseEvent(QEvent.Type.MouseMove, QPointF(self.lastMouseX, self.lastMouseY), Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)        
     
         # Magnifier can move on black screen for show image borders
         if self._interaction.magnifier:
@@ -762,8 +888,8 @@ class VideoWidget(QVideoWidget):
                 self.UpdateSurface()
 
         # check if the point is on picture (not in black borders)
-        if(not vut.IsPointOnScreen(event.x(), event.y(), self.surface)):
-            self.setCursor(QCursor(Qt.ArrowCursor))
+        if(not vut.IsPointOnScreen(event.position().x(), event.position().y(), self.surface)):
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
             self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)
             return
 
@@ -773,7 +899,7 @@ class VideoWidget(QVideoWidget):
 
         # Mouse cursor drawing
         if self._interaction.pointDrawer or self._interaction.polygonDrawer or self._interaction.lineDrawer or self._interaction.measureDistance or self._interaction.measureArea or self._interaction.censure or self._interaction.objectTracking:
-            self.setCursor(QCursor(Qt.CrossCursor))
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
 
         # Cursor Coordinates
         if GetGCPGeoTransform() is not None:
@@ -873,7 +999,7 @@ class VideoWidget(QVideoWidget):
         #if self.parent.player.position() == 0:
         #    return
 
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
 
             # Magnifier Glass
             if self._interaction.magnifier:
@@ -881,7 +1007,7 @@ class VideoWidget(QVideoWidget):
                 self.tapTimer.stop()
                 self.tapTimer.start(10, self)
 
-            if(not vut.IsPointOnScreen(event.x(), event.y(), self.surface)):
+            if(not vut.IsPointOnScreen(event.position().x(), event.position().y(), self.surface)):
                 return
 
             # point drawer
@@ -1041,6 +1167,6 @@ class VideoWidget(QVideoWidget):
         # Remove coordinates label value
         self.parent.lb_cursor_coord.setText("")
         # Change cursor
-        self.setCursor(QCursor(Qt.ArrowCursor))
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         # Reset mouse rubberband
         self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)

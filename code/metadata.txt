@@ -2,7 +2,7 @@
 name= QGIS Full Motion Video
 internal_name = QGIS_FMV
 qgisMinimumVersion=3.8
-qgisMaximumVersion=3.99
+qgisMaximumVersion=4.99
 description=<p>QGIS Full Motion Video.</p>
 about= Plugin for QGIS which allows to analyze, visualize and process videos inside the QGIS environment. 
 	   QGIS FMV accepts multiple video formats such as mp4, ts, avi, etc. It is also able to extract video frames, 

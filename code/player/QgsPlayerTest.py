@@ -19,7 +19,7 @@ class VideoWindow(QMainWindow):
         super(VideoWindow, self).__init__(parent)
         self.setWindowTitle("PyQt Video Player Widget Example - pythonprogramminglanguage.com") 
 
-        self.mediaPlayer = QMediaPlayer(None, QMediaPlayer.VideoSurface)
+        self.mediaPlayer = QMediaPlayer(None)
 
         videoWidget = QVideoWidget()
 
@@ -73,8 +73,8 @@ class VideoWindow(QMainWindow):
         # Set widget to contain window contents
         wid.setLayout(layout)
 
-        self.mediaPlayer.setVideoOutput(videoWidget)
-        self.mediaPlayer.stateChanged.connect(self.mediaStateChanged)
+        self.mediaPlayer.setVideoSink(videoWidget.videoSurface())
+        self.mediaPlayer.playbackStateChanged.connect(self.playbackStateChanged)
         self.mediaPlayer.positionChanged.connect(self.positionChanged)
         self.mediaPlayer.durationChanged.connect(self.durationChanged)
         self.mediaPlayer.error.connect(self.handleError)
@@ -83,8 +83,8 @@ class VideoWindow(QMainWindow):
         fileName, _ = QFileDialog.getOpenFileName(self, "Open Movie",
                 QDir.homePath())
         if fileName != '':
-            self.mediaPlayer.setMedia(QMediaContent(QUrl.fromLocalFile(fileName)) )
-            #self.mediaPlayer.setMedia(QMediaContent(QUrl.fromLocalFile(fileName)))
+            # self.mediaPlayer.setMedia(QMediaContent(QUrl.fromLocalFile(fileName)) )
+            self.mediaPlayer.setSource(QUrl.fromLocalFile(fileName))
             self.playButton.setEnabled(True)
 
             
@@ -92,13 +92,13 @@ class VideoWindow(QMainWindow):
         sys.exit(app.exec_())
 
     def play(self):
-        if self.mediaPlayer.state() == QMediaPlayer.PlayingState:
+        if self.mediaPlayer.state() == QMediaPlayer.PlaybackState.PlayingState:
             self.mediaPlayer.pause()
         else:
             self.mediaPlayer.play()
 
-    def mediaStateChanged(self, state):
-        if self.mediaPlayer.state() == QMediaPlayer.PlayingState:
+    def playbackStateChanged(self, state):
+        if self.mediaPlayer.state() == QMediaPlayer.PlaybackState.PlayingState:
             self.playButton.setIcon(
                     self.style().standardIcon(QStyle.SP_MediaPause))
         else:

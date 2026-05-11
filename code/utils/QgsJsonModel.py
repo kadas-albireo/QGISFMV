@@ -17,7 +17,8 @@ except ImportError:
 
 if Qgis.QGIS_VERSION_INT < 40000:
     NULL = QVariant()
-
+else: 
+    from qgis.core import NULL
 class QJsonTreeItem(object):
     """ Json TreeView Class """
 

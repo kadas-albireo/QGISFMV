@@ -36,8 +36,8 @@ class VideoUtils(object):
     def GetInverseMatrix(x, y, gt, surface):
         ''' inverse matrix transformation (lon-lat to video units x,y) '''
         gt = GetGCPGeoTransform()
-        #return gt([(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)])
-        #worldpoint = [(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface), 1]
+        #return gt([(event.position().x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)])
+        #worldpoint = [(event.position().x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface), 1]
         imagepoint = np.array(np.dot(np.linalg.inv(gt), [x, y, 1]))
         scalar = imagepoint[2]
         ximage = imagepoint[0]/scalar
@@ -75,7 +75,7 @@ class VideoUtils(object):
 
     @staticmethod
     def GetXRatio(surface):
-        '''ratio between event.x() and real image width on screen.
+        '''ratio between event.position().x() and real image width on screen.
         @type surface: QAbstractVideoSurface
         @param surface: Abstract video surface
         @return: double
@@ -84,7 +84,7 @@ class VideoUtils(object):
 
     @staticmethod
     def GetYRatio(surface):
-        '''ratio between event.y() and real image height on screen.
+        '''ratio between event.position().y() and real image height on screen.
         @type surface: QAbstractVideoSurface
         @param surface: Abstract video surface
         @return: double
@@ -168,8 +168,8 @@ class VideoUtils(object):
         @return:
         '''
         gt = GetGCPGeoTransform()
-        #return gt([(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)])
-        imagepoint = [(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface), 1]
+        #return gt([(event.position().x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)])
+        imagepoint = [(event.position().x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface), 1]
         worldpoint = np.array(np.dot(gt, imagepoint))
         scalar = worldpoint[2]
         xworld = worldpoint[0]/scalar
@@ -189,8 +189,8 @@ class VideoUtils(object):
         '''
         
         gt = GetGeotransform_affine()
-        x=(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface)
-        y=(event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)
+        x=(event.position().x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface)
+        y=(event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)
         x1, y1 = gdal.ApplyGeoTransform(gt, x, y)
         return [y1, x1]
 
