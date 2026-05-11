@@ -32,7 +32,7 @@ class FmvOptions(QDialog, Ui_OptionsDialog):
         self.opt = QStyleOptionSlider()
         self.sl_Size.initStyleOption(self.opt)
         rectHandle = self.style.subControlRect(
-            self.style.CC_Slider, self.opt, self.style.SC_SliderHandle, self.sl_Size)
+            self.style.ComplexControl.CC_Slider, self.opt, self.style.SubControl.SC_SliderHandle, self.sl_Size)
         self.tip_offset = QPoint(5, 15)
         pos_local = rectHandle.topLeft() + self.tip_offset
         pos_global = self.sl_Size.mapToGlobal(pos_local)

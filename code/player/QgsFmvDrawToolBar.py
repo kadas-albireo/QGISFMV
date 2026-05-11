@@ -339,7 +339,7 @@ class DrawToolBar(object):
 #                     GetSensor(), pt, GetFrameCenter()[2])
             scr_x, scr_y = vut.GetInverseMatrix(
                 pt[1], pt[0], gt, surface)
-            center = QPoint(scr_x, scr_y)
+            center = QPointF(scr_x, scr_y)
             poly.append(center)
 
         polygon = QPolygonF(poly)
@@ -424,7 +424,7 @@ class DrawToolBar(object):
 #                     GetSensor(), pt, GetFrameCenter()[2])
             scr_x, scr_y = vut.GetInverseMatrix(
                 pt[1], pt[0], gt, surface)
-            center = QPoint(scr_x, scr_y)
+            center = QPointF(scr_x, scr_y)
             poly.append(center)
 
             lat.append(pt[0])

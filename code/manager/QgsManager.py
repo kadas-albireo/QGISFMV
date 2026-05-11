@@ -88,7 +88,7 @@ class QMediaPlaylist:
         if self._index == -1:
             return -1  
         r = self._index + 1
-        if 0 <= r <= self.mediaCount():
+        if 0 <= r < self.mediaCount():
             return r
         return -1
 

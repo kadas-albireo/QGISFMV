@@ -27,6 +27,8 @@ from qgis.core import Qgis as QGis, QgsTask, QgsApplication, QgsRasterLayer, Qgs
 
 from qgis.PyQt.QtMultimedia import QMediaPlayer
 
+from qgis.PyQt.QtMultimedia import QAudioOutput
+
 from QGIS_FMV.converter.Converter import Converter
 from QGIS_FMV.gui.ui_FmvPlayer import Ui_PlayerWindow
 from QGIS_FMV.player.QgsFmvOptions import FmvOptions
@@ -153,11 +155,13 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.playerMuted = False
         self.HasFileAudio = False
 
-        self.player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
+        self.player = QMediaPlayer(None)
+        self.audioOutput = QAudioOutput()
+        self.player.setAudioOutput(self.audioOutput)
         self.pass_time = pass_time
-        self.player.setNotifyInterval(interval)  # Player update interval
+        # self.player.setNotifyInterval(interval)  # Player update interval
         
-        self.player.setVideoOutput(
+        self.player.setVideoSink(
             self.videoWidget.videoSurface())  # Abstract Surface
 
         self.player.durationChanged.connect(self.durationChanged)
@@ -165,12 +169,12 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.player.mediaStatusChanged.connect(self.statusChanged)
         self.player.playbackRateChanged.connect(self.rateChanged)
         
-        self.player.currentMediaChanged.connect(self.currentMediaChanged)
+        self.player.sourceChanged.connect(self.sourceChanged)
         
 
-        self.player.stateChanged.connect(self.setCurrentState)
+        self.player.playbackStateChanged.connect(self.setCurrentState)
 
-        self.playerState = QMediaPlayer.LoadingMedia
+        self.playerState = QMediaPlayer.MediaStatus.LoadingMedia
         
         #self.playFile(path, self.islocal, self.klv_folder)
         qgsu.showUserAndLogMessage("", "Init Duration is:. "+str(self.player.duration()), onlyLog=True)
@@ -181,7 +185,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.sliderDuration.mousePressed.connect(self.sliderDurationPressed)
         self.volumeSlider.mousePressed.connect(self.setVolume)
         
-        self.volumeSlider.setValue(self.player.volume())
+        self.volumeSlider.setValue(int(self.player.audioOutput().volume() * 100))
         self.volumeSlider.enterEvent = self.showVolumeTip
 
         self.metadataDlg = QgsFmvMetadata(player=self)
@@ -331,7 +335,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             # qgsu.showUserAndLogMessage(QCoreApplication.translate("QgsFmvPlayer", "Metadata Buffer Failed! : "), str(inst))
     
     def resumePlay(self, state):
-        if state == QMediaPlayer.PlayingState: 
+        if state == QMediaPlayer.PlaybackState.PlayingState: 
             self.player.play()
         
     def packetStreamParser(self, stdout_data):
@@ -494,10 +498,10 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         
         if state != self.playerState:
             self.playerState = state
-            if state == QMediaPlayer.StoppedState:
+            if state == QMediaPlayer.PlaybackState.StoppedState:
                 self.btn_play.setIcon(self.playIcon)
                 self.btn_stop.setEnabled(False)
-            elif state == QMediaPlayer.PausedState:
+            elif state == QMediaPlayer.PlaybackState.PausedState:
                 position = self.player.position()/1000
                 self.updateDurationInfo(position, True)
 
@@ -586,7 +590,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             scr = QApplication.desktop().screenNumber(self)
             menu.exec(QPoint(point.x() + scr * QApplication.desktop().screenGeometry(scr).width(), point.y()))
     
-    def currentMediaChanged(self, media):
+    def sourceChanged(self, media):
    
         idx = self.parent.playlist.currentIndex()
                 
@@ -611,7 +615,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             self.fileName = self.parent.VManager.item(idx, 3).text()
             
             self.setWindowTitle(QCoreApplication.translate(
-                "QgsFmvPlayer", 'Playing : ') + os.path.basename(media.canonicalUrl().toString()))
+                "QgsFmvPlayer", 'Playing : ') + os.path.basename(media.toString()))
 
             self.parent.SetupPlayer(idx)
             
@@ -871,13 +875,13 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         '''
         qgsu.showUserAndLogMessage("", "CommonPauseTool:" + str(value), onlyLog=True)
         if value:
-            if self.playerState == QMediaPlayer.PlayingState:
+            if self.playerState == QMediaPlayer.PlaybackState.PlayingState:
                 self.pauseAt(self.player.position())
                 self.btn_play.setIcon(self.playIcon)
                 self.videoWidget.update()
         else:
-            if self.playerState in (QMediaPlayer.StoppedState,
-                                    QMediaPlayer.PausedState):
+            if self.playerState in (QMediaPlayer.PlaybackState.StoppedState,
+                                    QMediaPlayer.PlaybackState.PausedState):
                 self.player.play()
                 self.btn_play.setIcon(self.pauseIcon)
         QApplication.processEvents()
@@ -976,7 +980,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type volume: qreal
         @param volume: QSlider value
         '''
-        self.player.setVolume(volume)
+        self.player.audioOutput.setVolume(volume / 100)
         self.showVolumeTip(None)
         if 0 < volume <= 30:
             self.btn_volume.setIcon(QIcon(":/imgFMV/images/volume_30.png"))
@@ -1014,7 +1018,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         if rewindTime < 0:
             rewindTime = 0
         self.player.setPosition(rewindTime)
-        
+
     # Actually never connected to any signal 
     # def AutoRepeat(self, checked):
     #     '''Button AutoRepeat Video
@@ -1035,7 +1039,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.opt = QStyleOptionSlider()
         self.volumeSlider.initStyleOption(self.opt)
         rectHandle = self.style.subControlRect(
-            self.style.CC_Slider, self.opt, self.style.SC_SliderHandle)
+            self.style.ComplexControl.CC_Slider, self.opt, self.style.SubControl.SC_SliderHandle)
         self.tip_offset = QPoint(5, 15)
         pos_local = rectHandle.topLeft() + self.tip_offset
         pos_global = self.volumeSlider.mapToGlobal(pos_local)
@@ -1051,7 +1055,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.opt = QStyleOptionSlider()
         self.sliderDuration.initStyleOption(self.opt)
         rectHandle = self.style.subControlRect(
-            self.style.CC_Slider, self.opt, self.style.SC_SliderHandle)
+            self.style.ComplexControl.CC_Slider, self.opt, self.style.SubControl.SC_SliderHandle)
         self.tip_offset = QPoint(5, 15)
         pos_local = rectHandle.topLeft() + self.tip_offset
         pos_global = self.sliderDuration.mapToGlobal(pos_local)
@@ -1084,7 +1088,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         
         if not self.closing and not self.sliderDuration.isSliderDown():
             #show precise info if player is paused
-            if self.playerState == QMediaPlayer.PausedState:
+            if self.playerState == QMediaPlayer.PlaybackState.PausedState:
                 self.updateDurationInfo(progress / 1000, True)
             else:
                 self.updateDurationInfo(progress / 1000)
@@ -1093,7 +1097,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.seek(value)
                     
     def sliderDurationReleased(self):
-        if self.playerState == QMediaPlayer.PausedState:
+        if self.playerState == QMediaPlayer.PlaybackState.PausedState:
             self.updateDurationInfo(self.sliderDuration.value() / 1000, True)
     
     def updateDurationInfo(self, currentInfo, isPrecise=False):
@@ -1141,9 +1145,9 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type status: QMediaPlayer::MediaStatus
         @param status: Video status
         '''
-        if status in (QMediaPlayer.LoadingMedia,
-                      QMediaPlayer.BufferingMedia,
-                      QMediaPlayer.StalledMedia):
+        if status in (QMediaPlayer.MediaStatus.LoadingMedia,
+                      QMediaPlayer.MediaStatus.BufferingMedia,
+                      QMediaPlayer.MediaStatus.StalledMedia):
             self.setCursor(Qt.CursorShape.BusyCursor)
         else:
             self.unsetCursor()
@@ -1154,21 +1158,21 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @param status: Video status
         '''
         self.handleCursor(status)
-        if status is QMediaPlayer.LoadingMedia or status is QMediaPlayer.StalledMedia or status is QMediaPlayer.InvalidMedia:
+        if status is QMediaPlayer.MediaStatus.LoadingMedia or status is QMediaPlayer.MediaStatus.StalledMedia or status is QMediaPlayer.MediaStatus.InvalidMedia:
             self.videoAvailableChanged(False)
-        elif status == QMediaPlayer.InvalidMedia:
+        elif status == QMediaPlayer.MediaStatus.InvalidMedia:
             if len(self.player.errorString()) > 0:
                 qgsu.showUserAndLogMessage(QCoreApplication.translate(
                     "QgsFmvPlayer", "Player error: " + self.player.errorString()), level=QGis.Warning)
             qgsu.showUserAndLogMessage("", "invalid media", onlyLog=True)    
             self.videoAvailableChanged(False)
-        elif status == QMediaPlayer.EndOfMedia and self.parent.playlist.nextIndex() == -1:
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia and self.parent.playlist.nextIndex() == -1:
             #qgsu.showUserAndLogMessage("", "EndOfMedia and playlist end entred", onlyLog=False)
             self.videoAvailableChanged(False)
             self.fakeStop()
-        elif status == QMediaPlayer.EndOfMedia:
-            self.player.setMedia(self.parent.playlist.next())
-            # self.player.setSource(self.parent.playlist.next())
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia:
+            # self.player.setMedia(self.parent.playlist.next())
+            self.player.setSource(self.parent.playlist.next())
             self.player.play()
             self.videoAvailableChanged(True)
         else:
@@ -1176,8 +1180,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
     def setPlaylist(self, playlist):
         playlist.setCurrentIndex(1)
-        self.player.setMedia(playlist.media(0))
-        # self.player.setSource(playlist.medias(0))
+        # self.player.setMedia(playlist.media(0))
+        self.player.setSource(playlist.media(0))
 
     def playFile(self, videoPath, islocal=False, klv_folder=None):
         ''' Play file from path
@@ -1304,7 +1308,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     def fakeStop(self):
         '''self.player.stop() make a black screen and not reproduce it again'''
        
-        if self.playerState == QMediaPlayer.PausedState:
+        if self.playerState == QMediaPlayer.PlaybackState.PausedState:
             self.player.play()
             self.btn_play.setIcon(self.pauseIcon)
         
@@ -1326,8 +1330,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
     def playClicked(self, _):       
         ''' Stop and Play video '''
-        if self.playerState in (QMediaPlayer.StoppedState,
-                                QMediaPlayer.PausedState):
+        if self.playerState in (QMediaPlayer.PlaybackState.StoppedState,
+                                QMediaPlayer.PlaybackState.PausedState):
             self.btn_play.setIcon(self.pauseIcon)
             self.btn_stop.setEnabled(True)
 
@@ -1336,7 +1340,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
             # Play Video
             self.player.play()
-        elif self.playerState == QMediaPlayer.PlayingState:
+        elif self.playerState == QMediaPlayer.PlaybackState.PlayingState:
             self.btn_play.setIcon(self.playIcon)
             self.pauseAt(self.player.position())
             
