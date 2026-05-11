@@ -1004,8 +1004,7 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
     if items["footprint"] and items["platform"] and items["framecenter"]:        
         
         curAuthId =  parent.iface.mapCanvas().mapSettings().destinationCrs().authid()
-        trgCode = int(curAuthId.split(":")[1])
-        xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
+        xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateReferenceSystem(curAuthId), QgsProject().instance())
         transP = xform.transform(QgsPointXY(items["platform"].position().x(), items["platform"].position().y()))
         transT = xform.transform(QgsPointXY(items["framecenter"].position().x(), items["framecenter"].position().y()))
         

@@ -482,8 +482,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         if self.initialPt[row][1] != None and self.initialPt[row][0] != None:
             map_pos = QgsPointXY(self.initialPt[row][1], self.initialPt[row][0])
             if curAuthId != "EPSG:4326":
-                trgCode=int(curAuthId.split(":")[1])
-                xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
+                xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateReferenceSystem(curAuthId), QgsProject().instance())
                 map_pos = xform.transform(map_pos)
                 
             self.iface.mapCanvas().setCenter(map_pos)

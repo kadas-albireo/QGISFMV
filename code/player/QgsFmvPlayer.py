@@ -205,7 +205,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.DrawToolBar.setFloatable(False) 
         
         # Defalut WGS 84/ World Mercator (3D)
-        # QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(3395))
+        # QgsProject.instance().setCrs(QgsCoordinateReferenceSystem("EPSG:3395"))
       
     def setMetaReader(self, meta_reader):
         self.meta_reader = meta_reader
