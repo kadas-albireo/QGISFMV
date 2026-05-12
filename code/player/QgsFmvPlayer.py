@@ -1182,6 +1182,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         playlist.setCurrentIndex(1)
         # self.player.setMedia(playlist.media(0))
         self.player.setSource(playlist.media(0))
+        self.player.play()
 
     def playFile(self, videoPath, islocal=False, klv_folder=None):
         ''' Play file from path
@@ -1283,6 +1284,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         # self.btn_Color.setEnabled(available)
         self.btn_CaptureFrame.setEnabled(available)
         self.gb_PlayerControls.setEnabled(available)
+        if(available):
+            self.player.play()
         return
 
     def toggleGroup(self, state):
