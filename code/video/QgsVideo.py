@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import time
+
 from qgis.PyQt.QtCore import Qt, QRect, QPoint, QEvent, QBasicTimer, QSize, QPointF
 from qgis.PyQt.QtGui import (QImage,
                              QPalette,
@@ -24,7 +26,8 @@ except:
     from PyQt6.QtMultimedia import (
                                 QVideoSink,
                                 QVideoFrame,
-                                QMediaPlayer)
+                                QMediaPlayer,
+                                QVideoFrameFormat )
     
     class QAbstractVideoBuffer:
         NoHandle = 0 
@@ -69,7 +72,25 @@ try:
 except ImportError:
     None
 
-    
+def timer(name=""):
+    """How to use
+    t = timer("do some task")    
+    t() #Init the timer
+    t() #Print time since last call  e.g since last step for "do some task"
+    t("step name") #same as above but name the step just done
+    """
+    last_step_time = None
+    def inner(step_name=""):
+        nonlocal last_step_time
+        if last_step_time == None:
+            print("init timer" + (" " if name else "") + name )
+            last_step_time = time.time()
+        else:
+            new_time = time.time()
+            print("since last step for time"+ ( " " if name else "") + name +  ( " at step " if step_name else "") + step_name, new_time-last_step_time )
+            last_step_time = new_time
+    return inner
+
 class InteractionState(object):
     """ Interaction Video Player Class """
 
@@ -118,7 +139,7 @@ class VideoWidgetSink(QVideoSink):
 
         self.widget = widget
         self._currentFrame:QVideoFrame = None
-        # self.updateVideoRect()
+        self.updateVideoRect()
         self.videoFrameChanged.connect(self.onVideoFrameChanged)
 
     def onVideoFrameChanged(self, frame):
@@ -157,27 +178,48 @@ class VideoWidgetSink(QVideoSink):
     def paint(self, painter):
         ''' Paint Frame'''
 
-        if self._currentFrame is None or not self._currentFrame.isValid():
-            print("Early return ? ")
-            return
+        start_time = time.time()
+        t = timer("paint method")
+        t()
+        # if self._currentFrame is None or not self._currentFrame.isValid():
+        #     print("Early return ? ")
+        #     return
         print("inside paint 1")
+        # print("target rect:", self._targetRect)
 
-        print("target rect:", self._targetRect)
+
+
         
         if (self._currentFrame.map(QVideoFrame.MapMode.ReadOnly)):
             oldTransform = painter.transform()
             painter.setTransform(oldTransform)
-        print("inside paint 1.5")
+            t()
+        print("inside paint 1.2")
         try:
             # planecount = self._currentFrame.planeCount()
-            # self.image = QImage(self._currentFrame.bits(planecount),
-            #                     self._currentFrame.width(),
-            #                     self._currentFrame.height(),
-            #                     self._currentFrame.bytesPerLine(planecount),
-            #                     self.imageFormat
-            #                     )
+            planecount = self._currentFrame.planeCount()
+            planecount = 1
+            print(self._currentFrame.pixelFormat())
+
+            print((self._currentFrame.bits(planecount),
+                                self._currentFrame.width(),
+                                self._currentFrame.height(),
+                                self._currentFrame.bytesPerLine(planecount),
+                                QImage.Format.Format_RGB32
+
+                                QVideoFrameFormat.imageFormatFromPixelFormat(self._currentFrame.pixelFormat())
+                                # self._currentFrame.surfaceFormat().imageFormatFromPixelFormat()
+                                ))
+            self.image = QImage(self._currentFrame.bits(planecount),
+                                self._currentFrame.width(),
+                                self._currentFrame.height(),
+                                self._currentFrame.bytesPerLine(planecount),
+                                # QImage.Format.Format_RGBX8888
+                                QVideoFrameFormat.imageFormatFromPixelFormat(self._currentFrame.pixelFormat())
+                                )
             self.image = self._currentFrame.toImage()
             print("image:", self.image)
+            t()
         except Exception as e:
             print(e)
 
@@ -215,24 +257,36 @@ class VideoWidgetSink(QVideoSink):
             except Exception:
                 None
 
-
+        t()
         print("inside paint 3")
-        painter.drawImage(self._targetRect, self.image) #, self._sourceRect)
-
+        try:
+            painter.drawImage(self._targetRect, self.image) #, self._sourceRect)
+            t()
+        except Exception as e:
+            print(f"draw image failed : {e}")
+        print("inside paint 4")
         # from datetime import datetime
         # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        # r = self.image.save(f"C:/Users/Valentin/Documents/ouput_debug_fmv/frame_{timestamp}.png")
-        # if r:
-        #     print(f"Debug: Frame saved successfully as frame_{timestamp}.png")
-        # else:
-        #     print("error saving image")
+        # try: 
+        #     r = self.image.save(f"C:/Users/Valentin/Documents/ouput_debug_fmv/frame_{timestamp}.png")
+        #     if r:
+        #         print(f"Debug: Frame saved successfully as frame_{timestamp}.png")
+        #     else:
+        #         print("error saving image")
+        # except Exception as e:
+        #     print(f"Error saving image: {e}")
         # # image = QImage(400, 300, QImage.Format.Format_ARGB32)
         # print("Debug: Saving current frame to debug_image.png")
         # debug_image = QImage(400, 300, QImage.Format.Format_ARGB32)
         # painter.drawImage(self._targetRect, debug_image) #, self._sourceRect)
         # debug_image.save(r"C:\Users\Valentin\Documents\kadas\debug_image.png")
 
+        print("inside paint 4")
+
+
         self._currentFrame.unmap()
+
+        print("end_time", time.time()  - start_time )
         return
 class VideoWidgetSurface(QAbstractVideoSurface):
 

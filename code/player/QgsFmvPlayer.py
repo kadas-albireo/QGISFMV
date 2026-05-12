@@ -1182,6 +1182,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         playlist.setCurrentIndex(1)
         # self.player.setMedia(playlist.media(0))
         self.player.setSource(playlist.media(0))
+        self.player.play()
 
     def playFile(self, videoPath, islocal=False, klv_folder=None):
         ''' Play file from path
