@@ -138,13 +138,16 @@ class VideoWidgetSink(QVideoSink):
         super().__init__(parent)
 
         self.widget = widget
-        self._currentFrame:QVideoFrame = None
+        self._currentFrame: QVideoFrame = None
+        self._targetRect = QRect()
+        self.image = QImage()
         self.updateVideoRect()
         self.videoFrameChanged.connect(self.onVideoFrameChanged)
 
     def onVideoFrameChanged(self, frame):
         # print("Debug: on Video frame changed")
         self._currentFrame = frame
+        self.updateVideoRect()
         self.widget.updateGeometry()
         self.widget.update()
          
@@ -159,8 +162,9 @@ class VideoWidgetSink(QVideoSink):
 
     def updateVideoRect(self):
         ''' Update video rectangle '''
-        if self._currentFrame is None:
-            return QSize(0, 0)
+        if self._currentFrame is None or not self._currentFrame.isValid():
+            self._targetRect = QRect()
+            return
         size = self._currentFrame.size()
         size.scale(self.widget.size().boundedTo(size), Qt.AspectRatioMode.KeepAspectRatio)
         self._targetRect = QRect(QPoint(0, 0), size)
@@ -178,52 +182,22 @@ class VideoWidgetSink(QVideoSink):
     def paint(self, painter):
         ''' Paint Frame'''
 
-        start_time = time.time()
-        t = timer("paint method")
-        t()
-        # if self._currentFrame is None or not self._currentFrame.isValid():
-        #     print("Early return ? ")
-        #     return
-        print("inside paint 1")
-        # print("target rect:", self._targetRect)
+        if self._currentFrame is None or not self._currentFrame.isValid():
+            return
 
+        if not self._currentFrame.map(QVideoFrame.MapMode.ReadOnly):
+            return
 
-
-        
-        if (self._currentFrame.map(QVideoFrame.MapMode.ReadOnly)):
-            oldTransform = painter.transform()
-            painter.setTransform(oldTransform)
-            t()
-        print("inside paint 1.2")
         try:
-            # planecount = self._currentFrame.planeCount()
-            planecount = self._currentFrame.planeCount()
-            planecount = 1
-            print(self._currentFrame.pixelFormat())
-
-            print((self._currentFrame.bits(planecount),
-                                self._currentFrame.width(),
-                                self._currentFrame.height(),
-                                self._currentFrame.bytesPerLine(planecount),
-                                QImage.Format.Format_RGB32
-
-                                QVideoFrameFormat.imageFormatFromPixelFormat(self._currentFrame.pixelFormat())
-                                # self._currentFrame.surfaceFormat().imageFormatFromPixelFormat()
-                                ))
-            self.image = QImage(self._currentFrame.bits(planecount),
-                                self._currentFrame.width(),
-                                self._currentFrame.height(),
-                                self._currentFrame.bytesPerLine(planecount),
-                                # QImage.Format.Format_RGBX8888
-                                QVideoFrameFormat.imageFormatFromPixelFormat(self._currentFrame.pixelFormat())
-                                )
             self.image = self._currentFrame.toImage()
-            print("image:", self.image)
-            t()
         except Exception as e:
-            print(e)
+            print(f"toImage failed: {e}")
+            self._currentFrame.unmap()
+            return
 
-        print("inside paint 2")
+        if self.image.isNull():
+            self._currentFrame.unmap()
+            return
 
         if self.widget._filterSatate.grayColorFilter:
             self.image = filter.GrayFilter(self.image)
@@ -257,171 +231,15 @@ class VideoWidgetSink(QVideoSink):
             except Exception:
                 None
 
-        t()
-        print("inside paint 3")
         try:
-            painter.drawImage(self._targetRect, self.image) #, self._sourceRect)
-            t()
+            if not self._targetRect.isValid():
+                self.updateVideoRect()
+            painter.drawImage(self._targetRect, self.image)
         except Exception as e:
             print(f"draw image failed : {e}")
-        print("inside paint 4")
-        # from datetime import datetime
-        # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-        # try: 
-        #     r = self.image.save(f"C:/Users/Valentin/Documents/ouput_debug_fmv/frame_{timestamp}.png")
-        #     if r:
-        #         print(f"Debug: Frame saved successfully as frame_{timestamp}.png")
-        #     else:
-        #         print("error saving image")
-        # except Exception as e:
-        #     print(f"Error saving image: {e}")
-        # # image = QImage(400, 300, QImage.Format.Format_ARGB32)
-        # print("Debug: Saving current frame to debug_image.png")
-        # debug_image = QImage(400, 300, QImage.Format.Format_ARGB32)
-        # painter.drawImage(self._targetRect, debug_image) #, self._sourceRect)
-        # debug_image.save(r"C:\Users\Valentin\Documents\kadas\debug_image.png")
-
-        print("inside paint 4")
-
-
-        self._currentFrame.unmap()
-
-        print("end_time", time.time()  - start_time )
-        return
-class VideoWidgetSurface(QAbstractVideoSurface):
-
-    def __init__(self, widget):
-        ''' Constructor '''
-        super().__init__()
-
-        self.widget = widget
-        self.imageFormat = QImage.Format.Format_Invalid
-        self.image = None
-
-    def supportedPixelFormats(self, handleType=QAbstractVideoBuffer.NoHandle):
-        ''' Available Frames Format '''
-        formats = [QVideoFrame.PixelFormat()]
-        if handleType == QAbstractVideoBuffer.NoHandle:
-            for f in [QVideoFrame.Format_RGB32,
-                      QVideoFrame.Format_ARGB32,
-                      QVideoFrame.Format_ARGB32_Premultiplied,
-                      QVideoFrame.Format_RGB565,
-                      QVideoFrame.Format_RGB555
-                      ]:
-                formats.append(f)
-        return formats
-
-    def isFormatSupported(self, _format):
-        ''' Check if is supported VideFrame format '''
-        imageFormat = QVideoFrame.imageFormatFromPixelFormat(
-            _format.pixelFormat())
-        size = _format.frameSize()
-        _bool = False
-        if (imageFormat != QImage.Format.Format_Invalid and not
-            size.isEmpty() and
-                _format.handleType() == QAbstractVideoBuffer.NoHandle):
-            _bool = True
-        return _bool
-
-    def start(self, _format):
-        ''' Start QAbstractVideoSurface '''
-        imageFormat = QVideoFrame.imageFormatFromPixelFormat(
-            _format.pixelFormat())
-        size = _format.frameSize()
-        if (imageFormat != QImage.Format.Format_Invalid and not size.isEmpty()):
-            self._sourceRect = _format.viewport()
-            QAbstractVideoSurface.start(self, _format)
-            self.imageFormat = imageFormat
-            self.imageSize = size
-            self.widget.updateGeometry()
-            self.updateVideoRect()
-            return True
-        else:
-            return False
-
-    def stop(self):
-        ''' Stop Video '''
-        self._currentFrame = QVideoFrame()
-        self._targetRect = QRect()
-        QAbstractVideoSurface.stop(self)
-        self.widget.update()
-
-    def present(self, frame):
-        ''' Present Frame '''
-        if (self.surfaceFormat().pixelFormat() != frame.pixelFormat() or
-                self.surfaceFormat().frameSize() != frame.size()):
-            self.setError(QAbstractVideoSurface.IncorrectFormatError)
-            # if is a hight quality frame is stopped and not call start function
-            # self.stop()
-            return False
-        else:
-            self._currentFrame = frame
-            self.widget.update()
-            return True
-
-    def videoRect(self):
-        ''' Get Video Rectangle '''
-        return self._targetRect
-
-    def sourceRect(self):
-        ''' Get Source Rectangle '''
-        return self._sourceRect
-
-    def updateVideoRect(self):
-        ''' Update video rectangle '''
-        size = self.surfaceFormat().sizeHint()
-        size.scale(self.widget.size().boundedTo(size), Qt.AspectRatioMode.KeepAspectRatio)
-        self._targetRect = QRect(QPoint(0, 0), size)
-        self._targetRect.moveCenter(self.widget.rect().center())
-
-    def paint(self, painter):
-        ''' Paint Frame'''
-        if (self._currentFrame.map(QAbstractVideoBuffer.ReadOnly)):
-            oldTransform = painter.transform()
-            painter.setTransform(oldTransform)
-
-        self.image = QImage(self._currentFrame.bits(),
-                            self._currentFrame.width(),
-                            self._currentFrame.height(),
-                            self._currentFrame.bytesPerLine(),
-                            self.imageFormat
-                            )
-
-        if self.widget._filterSatate.grayColorFilter:
-            self.image = filter.GrayFilter(self.image)
-
-        if self.widget._filterSatate.MirroredHFilter:
-            self.image = filter.MirrredFilter(self.image)
-
-        if self.widget._filterSatate.monoFilter:
-            self.image = filter.MonoFilter(self.image)
-
-        if self.widget._filterSatate.invertColorFilter:
-            self.image.invertPixels()
-
-        # TODO : Test in other thread
-        if self.widget._filterSatate.edgeDetectionFilter:
-            try:
-                self.image = filter.EdgeFilter(self.image)
-            except Exception:
-                None
-        # TODO : Test in other thread
-        if self.widget._filterSatate.contrastFilter:
-            try:
-                self.image = filter.AutoContrastFilter(self.image)
-            except Exception:
-                None
-
-        # TODO : Test in other thread
-        if self.widget._filterSatate.NDVI:
-            try:
-                self.image = filter.NDVIFilter(self.image)
-            except Exception:
-                None
-
-        painter.drawImage(self._targetRect, self.image, self._sourceRect)
-        self._currentFrame.unmap()
-        return
+        finally:
+            self._currentFrame.unmap()
+    
 
 class VideoWidget(QVideoWidget):
 
