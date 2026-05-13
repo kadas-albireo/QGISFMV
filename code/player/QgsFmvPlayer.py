@@ -1171,16 +1171,15 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             self.videoAvailableChanged(False)
             self.fakeStop()
         elif status == QMediaPlayer.MediaStatus.EndOfMedia:
-            # self.player.setMedia(self.parent.playlist.next())
             self.player.setSource(self.parent.playlist.next())
             self.player.play()
             self.videoAvailableChanged(True)
         else:
             self.videoAvailableChanged(True)
+            # self.player.play()
 
     def setPlaylist(self, playlist):
         playlist.setCurrentIndex(1)
-        # self.player.setMedia(playlist.media(0))
         self.player.setSource(playlist.media(0))
         self.player.play()
 
@@ -1284,8 +1283,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         # self.btn_Color.setEnabled(available)
         self.btn_CaptureFrame.setEnabled(available)
         self.gb_PlayerControls.setEnabled(available)
-        if(available):
-            self.player.play()
+        # if(available):
+        #     self.player.play()
         return
 
     def toggleGroup(self, state):

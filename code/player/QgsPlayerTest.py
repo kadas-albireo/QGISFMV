@@ -83,7 +83,6 @@ class VideoWindow(QMainWindow):
         fileName, _ = QFileDialog.getOpenFileName(self, "Open Movie",
                 QDir.homePath())
         if fileName != '':
-            # self.mediaPlayer.setMedia(QMediaContent(QUrl.fromLocalFile(fileName)) )
             self.mediaPlayer.setSource(QUrl.fromLocalFile(fileName))
             self.mediaPlayer.play()
             self.playButton.setEnabled(True)
