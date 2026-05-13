@@ -1179,7 +1179,6 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             # self.player.play()
 
     def setPlaylist(self, playlist):
-        playlist.setCurrentIndex(1)
         self.player.setSource(playlist.media(0))
         self.player.play()
 

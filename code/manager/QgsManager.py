@@ -101,10 +101,10 @@ class QMediaPlaylist:
     def isFileInPlaylist(self, filename):
         for x in range(self.mediaCount()):
             try:
-                if filename in self.playlist.media(x).canonicalUrl().toString():
+                if filename in self.media(x).canonicalUrl().toString():
                     return True
             except:
-                if filename in self.playlist.media(x).toString():
+                if filename in self.media(x).toString():
                     return True
         return False
     
