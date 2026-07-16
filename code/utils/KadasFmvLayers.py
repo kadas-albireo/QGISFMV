@@ -8,30 +8,33 @@ from qgis.PyQt.QtCore import QCoreApplication, QPointF, Qt
 from configparser import ConfigParser
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.PyQt.QtCore import QVariant, QSettings
-from qgis.core import (QgsPalLayerSettings,
-                       QgsTextFormat,
-                       QgsTextBufferSettings,
-                       QgsVectorLayerSimpleLabeling,
-                       QgsMarkerSymbol,
-                       QgsLayerTreeLayer,
+from qgis.core import (Qgis,
+                       QgsCoordinateReferenceSystem,
+                       QgsCoordinateTransform,
+                       QgsDistanceArea,
+                       QgsFeature,
                        QgsField,
                        QgsFields,
-                       QgsVectorLayer,
-                       QgsVectorFileWriter,
                        QgsFillSymbol,
-                       QgsLineSymbol,
-                       QgsSvgMarkerSymbolLayer,
-                       QgsSingleSymbolRenderer,
-                       QgsDistanceArea,
-                       QgsCoordinateReferenceSystem,
-                       QgsProject,
-                       QgsFeature,
                        QgsGeometry,
-                       QgsPointXY,
-                       QgsPoint,
+                       QgsLayerTreeLayer,
                        QgsLineString,
-                       QgsRenderContext
+                       QgsLineSymbol,
+                       QgsMarkerSymbol,
+                       QgsPalLayerSettings,
+                       QgsPoint,
+                       QgsPointXY,
+                       QgsProject,
+                       QgsRenderContext,
+                       QgsSingleSymbolRenderer,
+                       QgsSvgMarkerSymbolLayer,
+                       QgsTextBufferSettings,
+                       QgsTextFormat,
+                       QgsVectorFileWriter,
+                       QgsVectorLayer,
+                       QgsVectorLayerSimpleLabeling,
                        )
+from qgis.gui import QgsRubberBand
 
 from qgis.utils import iface
 from QGIS_FMV.utils.QgsFmvStyles import FmvLayerStyles as S
@@ -83,6 +86,10 @@ beamMarkerUL=''
 beamMarkerLL=''
 beamMarkerLR=''
 
+rbPointsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
+# rbPointsEle.setIcon(QgsRubberBand.IconType.ICON_CROSS )
+rbPointsEle.setIconSize(30)
+rbPointsEle.setFillColor(QColor("green"))
 
 
 def AddDrawPointOnMap(pointIndex, Longitude, Latitude, Altitude):
@@ -92,19 +99,25 @@ def AddDrawPointOnMap(pointIndex, Longitude, Latitude, Altitude):
     
     #RemoveAllDrawPointOnMap()
     
-    p = KadasPointItem( QgsCoordinateReferenceSystem("EPSG:4326"), KadasPointItem.ICON_CROSS )
-    p.setZIndex( 100 )
-    p.setPosition(KadasItemPos.fromPoint(QgsPointXY(Longitude, Latitude)))
-    KadasMapCanvasItemManager.addItem( p )
-    pointsEle.append(p)
+    # p = KadasPointItem( QgsCoordinateReferenceSystem("EPSG:4326"), KadasPointItem.ICON_CROSS )
+    # p.setZIndex( 100 )
+    # p.setPosition(KadasItemPos.fromPoint())
+    # KadasMapCanvasItemManager.addItem( p )
 
-    textItem = KadasTextItem( QgsCoordinateReferenceSystem("EPSG:4326") )
-    textItem.setText( str(pointIndex) );
-    textItem.setPosition( KadasItemPos.fromPoint(QgsPointXY(Longitude, Latitude)) )
-    KadasMapCanvasItemManager.addItem( textItem )
-    pointsLblEle.append(textItem)
+    pointsEle.append(QgsPointXY(Longitude, Latitude))
+
+    UpdateDrawPointOnMap()
+    # rbPointsEle.setToGeometry(QgsGeometry.fromMultiPointXY(pointsEle))
+    # iface.mapCanvas().refresh()
+    # print(rbPointsEle.asGeometry().asMultiPoint())
+
+    # textItem = KadasTextItem( QgsCoordinateReferenceSystem("EPSG:4326") )
+    # textItem.setText( str(pointIndex) );
+    # textItem.setPosition( KadasItemPos.fromPoint(QgsPointXY(Longitude, Latitude)) )
+    # KadasMapCanvasItemManager.addItem( textItem )
+    # pointsLblEle.append(textItem)
     
-    SetDefaultPointStyle(p, textItem)
+    # SetDefaultPointStyle(p, textItem)
     
     
 
@@ -152,9 +165,11 @@ def RemoveAllDrawings():
     for ele in linesEle:
         KadasMapCanvasItemManager.removeItem(ele)
     
-    for ele in pointsEle:
-        KadasMapCanvasItemManager.removeItem(ele)
+    # for ele in pointsEle:
+    #     KadasMapCanvasItemManager.removeItem(ele)
+    rbPointsEle.reset(Qgis.GeometryType.Point)
     
+
     for ele in pointsLblEle:
         KadasMapCanvasItemManager.removeItem(ele)
     
@@ -163,6 +178,25 @@ def RemoveAllDrawings():
     
     crtSensorSrc, crtPltTailNum, lastTrajectoryEle, platformMarker, frameCenterMarker, trajectoryMarker, frameAxisMarker, footprintMarker, beamMarkerUR, beamMarkerUL, beamMarkerLL, beamMarkerLR = 'DEFAULT', 'DEFAULT', '', '', '', '', '', '', '', '', '', ''
     linesEle, pointsEle, pointsLblEle, polygonsEle = [], [], [], []
+
+    # raise Exception("RemoveAllDrawings() called, all mapItems cleared. This is a test exception to stop execution and debug.")
+    # print("remove all drawings called, all mapItems cleared.")
+    # import traceback
+    # traceback.print_stack()
+
+def UpdateDrawPointOnMap():
+    global pointsEle
+
+    # src_crs = QgsCoordinateReferenceSystem("EPSG:4326")
+    # dest_crs = iface.mapCanvas().mapSettings().destinationCrs()
+    # ct = QgsCoordinateTransform(src_crs, dest_crs, QgsProject.instance())
+    pointsEleGeom = QgsGeometry.fromMultiPointXY(pointsEle)
+    # pointsEleGeom.transform(ct)
+
+    rbPointsEle.setToGeometry(pointsEleGeom,  QgsCoordinateReferenceSystem("EPSG:4326"))
+    iface.mapCanvas().refresh()
+
+
 
 def RemoveAllDrawLineOnMap():
     ''' Remove all features on Line Layer '''
@@ -187,18 +221,25 @@ def RemoveLastDrawPointOnMap():
     global pointsEle, pointsLblEle
     
     if pointsEle:
-        KadasMapCanvasItemManager.removeItem(pointsEle.pop())
+        pointsEle.pop()
+        # rbPointsEle.setToGeometry(QgsGeometry.fromMultiPointXY(pointsEle))
+        # iface.mapCanvas().refresh()
+        # KadasMapCanvasItemManager.removeItem(pointsEle.pop())
         
     if pointsLblEle:
         KadasMapCanvasItemManager.removeItem(pointsLblEle.pop())
+
+    UpdateDrawPointOnMap()
 
 
 def RemoveAllDrawPointOnMap():
     ''' Remove all features on Point Layer '''
     global pointsEle, pointsLblEle
     
-    for ele in pointsEle:
-        KadasMapCanvasItemManager.removeItem(ele)
+    rbPointsEle.reset(Qgis.GeometryType.Point)
+
+    # for ele in pointsEle:
+    #     KadasMapCanvasItemManager.removeItem(ele)
         
     for ele in pointsLblEle:
         KadasMapCanvasItemManager.removeItem(ele)
