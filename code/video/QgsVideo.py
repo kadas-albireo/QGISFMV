@@ -461,8 +461,7 @@ class VideoWidget(QVideoWidget):
             return
 
         self.UpdateSurface()
-        scr = QApplication.desktop().screenNumber(self)
-        self.setGeometry(QApplication.desktop().screenGeometry(scr))
+        self.setGeometry(self.screen().geometry())
         self.setFullScreen(not self.isFullScreen())
         event.accept()
 

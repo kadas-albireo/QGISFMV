@@ -8,7 +8,7 @@ from qgis.PyQt.QtCore import (QUrl,
                               pyqtSignal,
                               QEvent,
                               QObject)
-from qgis.PyQt.QtGui import QIcon, QMovie
+from qgis.PyQt.QtGui import QIcon, QMovie, QGuiApplication
 from qgis.PyQt.QtWidgets import (QToolTip,
                                  QMessageBox,
                                  QAbstractSlider,
@@ -587,8 +587,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         if not self.videoWidget.isFullScreen():
             menu.exec(self.mapToGlobal(point))
         else:
-            scr = QApplication.desktop().screenNumber(self)
-            menu.exec(QPoint(point.x() + scr * QApplication.desktop().screenGeometry(scr).width(), point.y()))
+            scr = QGuiApplication.screens().index(self.screen())
+            menu.exec(QPoint(point.x() + scr * self.screen().geometry().width(), point.y()))
     
     def sourceChanged(self, media):
    
