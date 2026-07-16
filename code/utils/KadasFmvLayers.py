@@ -91,6 +91,14 @@ rbPointsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
 rbPointsEle.setIconSize(30)
 rbPointsEle.setFillColor(QColor("green"))
 
+rbLinesEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
+rbLinesEle.setColor(QColor("green"))
+rbLinesEle.setWidth(3)
+
+rbPolygonsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Polygon)
+rbPolygonsEle.setColor(QColor("green"))
+rbPolygonsEle.setWidth(3)
+
 
 def AddDrawPointOnMap(pointIndex, Longitude, Latitude, Altitude):
     '''  add pin point on the map '''
@@ -135,14 +143,15 @@ def AddDrawLineOnMap(drawLines):
             for i in range(0, len(list1)):
                 pt = QgsPointXY(list1[i][0], list1[i][1])
                 points.append(pt)
-            l = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
-            SetDefaultLineStyle(l)
-            KadasMapCanvasItemManager.addItem( l )
-            l.setZIndex( 90 )
+            # l = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+            # SetDefaultLineStyle(l)
+            # KadasMapCanvasItemManager.addItem( l )
+            # l.setZIndex( 90 )
             geom = QgsGeometry.fromPolylineXY(points)
-            l.addPartFromGeometry(geom.get())
-            linesEle.append(l)
-    return
+            # l.addPartFromGeometry(geom.get())
+            linesEle.append(points)
+
+    UpdateDrawLineOnMap()
 
 def GetMapItems():
     global platformMarker, frameCenterMarker, footprintMarker
@@ -162,19 +171,22 @@ def RemoveAllDrawings():
         if ele != '':
             KadasMapCanvasItemManager.removeItem(ele)
     
-    for ele in linesEle:
-        KadasMapCanvasItemManager.removeItem(ele)
+    # for ele in linesEle:
+    #     KadasMapCanvasItemManager.removeItem(ele)
+    rbLinesEle.reset(Qgis.GeometryType.Line)
     
     # for ele in pointsEle:
     #     KadasMapCanvasItemManager.removeItem(ele)
     rbPointsEle.reset(Qgis.GeometryType.Point)
+
+    # for ele in polygonsEle:
+    #     KadasMapCanvasItemManager.removeItem(ele)
+    rbPolygonsEle.reset(Qgis.GeometryType.Polygon)
     
 
     for ele in pointsLblEle:
         KadasMapCanvasItemManager.removeItem(ele)
     
-    for ele in polygonsEle:
-        KadasMapCanvasItemManager.removeItem(ele)
     
     crtSensorSrc, crtPltTailNum, lastTrajectoryEle, platformMarker, frameCenterMarker, trajectoryMarker, frameAxisMarker, footprintMarker, beamMarkerUR, beamMarkerUL, beamMarkerLL, beamMarkerLR = 'DEFAULT', 'DEFAULT', '', '', '', '', '', '', '', '', '', ''
     linesEle, pointsEle, pointsLblEle, polygonsEle = [], [], [], []
@@ -196,14 +208,26 @@ def UpdateDrawPointOnMap():
     rbPointsEle.setToGeometry(pointsEleGeom,  QgsCoordinateReferenceSystem("EPSG:4326"))
     iface.mapCanvas().refresh()
 
+def UpdateDrawLineOnMap():
+    global linesEle
+
+    rbLinesEle.setToGeometry(QgsGeometry.fromMultiPolylineXY(linesEle),  QgsCoordinateReferenceSystem("EPSG:4326"))
+    iface.mapCanvas().refresh()
+
+def UpdateDrawPolygonOnMap():
+    global polygonsEle
+
+    rbPolygonsEle.setToGeometry(QgsGeometry.fromMultiPolygonXY(polygonsEle),  QgsCoordinateReferenceSystem("EPSG:4326"))
+    iface.mapCanvas().refresh()
 
 
 def RemoveAllDrawLineOnMap():
     ''' Remove all features on Line Layer '''
     global linesEle
         
-    for ele in linesEle:
-        KadasMapCanvasItemManager.removeItem(ele)
+    # for ele in linesEle:
+    #     KadasMapCanvasItemManager.removeItem(ele)
+    rbLinesEle.reset(Qgis.GeometryType.Line)
     
     linesEle = []
     
@@ -211,10 +235,12 @@ def RemoveAllDrawLineOnMap():
 def RemoveLastDrawPolygonOnMap():
     '''  Remove Last Feature on Polygon Layer '''
     global polygonsEle
-    
-    if polygonsEle:
-        KadasMapCanvasItemManager.removeItem(polygonsEle.pop())
 
+    if polygonsEle:
+        # KadasMapCanvasItemManager.removeItem(polygonsEle.pop())
+        polygonsEle.pop()
+
+    UpdateDrawPolygonOnMap()
 
 def RemoveLastDrawPointOnMap():
     ''' Remove Last features on Point Layer '''
@@ -252,8 +278,10 @@ def RemoveAllDrawPointOnMap():
 def RemoveAllDrawPolygonOnMap():
     ''' Remove all features on Polygon Layer '''
     global polygonsEle
-    for ele in polygonsEle:
-        KadasMapCanvasItemManager.removeItem(ele)
+    # for ele in polygonsEle:
+        # KadasMapCanvasItemManager.removeItem(ele)
+
+    rbPolygonsEle.reset(Qgis.GeometryType.Polygon)
     
     polygonsEle = []
     
@@ -268,17 +296,20 @@ def AddDrawPolygonOnMap(poly_coordinates):
     point = QPointF()
     # create  float polygon --> construcet out of 'point'
 
-    list_polygon = QPolygonF()
+    exterior_ring = []
     for x in range(0, len(poly_coordinates)):
         if x % 2 == 0:
-            point.setX(poly_coordinates[x])
-            point.setY(poly_coordinates[x + 1])
-            list_polygon.append(point)
-    point.setX(poly_coordinates[0])
-    point.setY(poly_coordinates[1])
-    list_polygon.append(point)
+            point = QgsPointXY(poly_coordinates[x], poly_coordinates[x + 1])
+            # point.setX(poly_coordinates[x])
+            # point.setY(poly_coordinates[x + 1])
+            exterior_ring.append(point)
+    point = QgsPointXY(poly_coordinates[0], poly_coordinates[1])
+    # point.setX(poly_coordinates[0])
+    # point.setY(poly_coordinates[1])
+    exterior_ring.append(point)
 
-    geomP = QgsGeometry.fromQPolygonF(list_polygon)
+    geomP = QgsGeometry.fromPolygonXY([exterior_ring])
+
     feature.setGeometry(geomP)
 
     # Calculate Area WSG84 (Meters)
@@ -298,12 +329,14 @@ def AddDrawPolygonOnMap(poly_coordinates):
     feature.setAttributes([centroid.x(), centroid.y(
     ), 0.0, area_wsg84.measurePolygon(geomP.asPolygon()[0])])
     
-    p = KadasPolygonItem(QgsCoordinateReferenceSystem("EPSG:4326"))
-    SetDefaultPolygonStyle(p)
-    p.setZIndex(90)
-    p.addPartFromGeometry(geomP.get())
-    KadasMapCanvasItemManager.addItem(p)
-    polygonsEle.append(p)
+    # p = KadasPolygonItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+    # SetDefaultPolygonStyle(p)
+    # p.setZIndex(90)
+    # p.addPartFromGeometry(geomP.get())
+    # KadasMapCanvasItemManager.addItem(p)
+    polygonsEle.append([exterior_ring])
+
+    UpdateDrawPolygonOnMap()
     return True
 
 
