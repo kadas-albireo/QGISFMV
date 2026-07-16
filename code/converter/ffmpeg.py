@@ -1,4 +1,4 @@
-﻿  # -*- coding: utf-8 -*-
+  # -*- coding: utf-8 -*-
 import locale
 import os
 import os.path
@@ -7,7 +7,7 @@ import re
 
 from QGIS_FMV.utils.QgsFmvUtils import _spawn
 
-console_encoding = locale.getdefaultlocale()[1] or 'UTF-8'
+console_encoding = locale.getlocale()[1] or 'UTF-8'
 windows = platform.system() == 'Windows'
 
 try:

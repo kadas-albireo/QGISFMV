@@ -13,7 +13,7 @@ from qgis.PyQt.QtWidgets import QApplication
 
 # Check dependencies
 #try:
-#    QApplication.setOverrideCursor(Qt.PointingHandCursor)
+#    QApplication.setOverrideCursor(Qt.CursorShape.PointingHandCursor)
 #    QApplication.processEvents()
 #
 #    windows = platform.system() == 'Windows'

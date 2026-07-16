@@ -1,4 +1,4 @@
-﻿  # 2017 by Gregor Engberding , MIT License
+# 2017 by Gregor Engberding , MIT License
 # Modificated for work in QGIS FMV Plugin
 # -*- coding: utf-8 -*-
 from qgis.PyQt.QtCore import (QJsonDocument,
@@ -8,13 +8,17 @@ from qgis.PyQt.QtCore import (QJsonDocument,
                               QVariant,
                               QCoreApplication,
                               QJsonParseError)
+from qgis.core import Qgis
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 try:
     from pydevd import *
 except ImportError:
     None
 
-
+if Qgis.QGIS_VERSION_INT < 40000:
+    NULL = QVariant()
+else: 
+    from qgis.core import NULL
 class QJsonTreeItem(object):
     """ Json TreeView Class """
 
@@ -142,12 +146,12 @@ class QJsonModel(QAbstractItemModel):
 
     def data(self, index, role):
         if not index.isValid():
-            return QVariant()
+            return NULL
 
         item = index.internalPointer()
         col = index.column()
 
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             if col == 0:
                 return str(item.key())
             elif col == 1:
@@ -155,16 +159,16 @@ class QJsonModel(QAbstractItemModel):
             elif col == 2:
                 return str(item.type())
 
-        return QVariant()
+        return NULL
 
     def headerData(self, section, orientation, role):
-        if role != Qt.DisplayRole:
-            return QVariant()
+        if role != Qt.ItemDataRole.DisplayRole:
+            return NULL
 
-        if orientation == Qt.Horizontal:
+        if orientation == Qt.Orientation.Horizontal:
             return self.mHeaders[section]
 
-        return QVariant()
+        return NULL
 
     def index(self, row, column, parent):
         if not self.hasIndex(row, column, parent):

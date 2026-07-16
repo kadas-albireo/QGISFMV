@@ -6,7 +6,7 @@
 #
 # WARNING! All changes made in this file will be lost!
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from qgis.PyQt import QtCore, QtGui, QtWidgets
 
 class Ui_FmvOpenStream(object):
     def setupUi(self, FmvOpenStream):
@@ -14,9 +14,9 @@ class Ui_FmvOpenStream(object):
         FmvOpenStream.resize(355, 83)
         FmvOpenStream.setMinimumSize(QtCore.QSize(0, 0))
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/stream.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/stream.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         FmvOpenStream.setWindowIcon(icon)
-        FmvOpenStream.setLocale(QtCore.QLocale(QtCore.QLocale.English, QtCore.QLocale.UnitedStates))
+        FmvOpenStream.setLocale(QtCore.QLocale(QtCore.QLocale.Language.English))
         self.verticalLayout = QtWidgets.QVBoxLayout(FmvOpenStream)
         self.verticalLayout.setObjectName("verticalLayout")
         self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
@@ -39,7 +39,7 @@ class Ui_FmvOpenStream(object):
         self.horizontalLayout_3 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_3.setObjectName("horizontalLayout_3")
         self.btn_Open = QtWidgets.QPushButton(FmvOpenStream)
-        self.btn_Open.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self.btn_Open.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         self.btn_Open.setObjectName("btn_Open")
         self.horizontalLayout_3.addWidget(self.btn_Open)
         self.verticalLayout.addLayout(self.horizontalLayout_3)

@@ -543,7 +543,7 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                     reply = QgsNetworkAccessManager.instance().get(request)
                     loop = QEventLoop()
                     reply.finished.connect(loop.quit)
-                    loop.exec_()
+                    loop.exec()
                     reply.finished.disconnect(loop.quit)
                     loop = None
                     result = reply.readAll()
@@ -674,7 +674,7 @@ def setPluginSetting(name, value, namespace=None):
     settings.setValue(namespace + "/" + name, value)
 
 
-def askForFolder(parent, msg=None, options=QFileDialog.ShowDirsOnly):
+def askForFolder(parent, msg=None, options=QFileDialog.Option.ShowDirsOnly):
     ''' dialog for save or load folder '''
     msg = msg or 'Select folder'
     caller = _callerName().split(".")
@@ -689,13 +689,13 @@ def askForFolder(parent, msg=None, options=QFileDialog.ShowDirsOnly):
 
 def convertQImageToMat(img, cn=3):
     '''  Converts a QImage into an opencv MAT format  '''
-    img = img.convertToFormat(QImage.Format_RGB888)
+    img = img.convertToFormat(QImage.Format.Format_RGB888)
     ptr = img.bits()
     ptr.setsize(img.byteCount())
     return np.array(ptr).reshape(img.height(), img.width(), cn)
 
 
-def convertMatToQImage(img, t=QImage.Format_RGB888):
+def convertMatToQImage(img, t=QImage.Format.Format_RGB888):
     '''  Converts an opencv MAT image to a QImage  '''
     height, width = img.shape[:2]
     if img.ndim == 3:
@@ -1004,8 +1004,7 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
     if items["footprint"] and items["platform"] and items["framecenter"]:        
         
         curAuthId =  parent.iface.mapCanvas().mapSettings().destinationCrs().authid()
-        trgCode = int(curAuthId.split(":")[1])
-        xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
+        xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateReferenceSystem(curAuthId), QgsProject().instance())
         transP = xform.transform(QgsPointXY(items["platform"].position().x(), items["platform"].position().y()))
         transT = xform.transform(QgsPointXY(items["framecenter"].position().x(), items["framecenter"].position().y()))
         
@@ -1514,16 +1513,16 @@ def BurnDrawingsImage(source, overlay):
     @param overlay: Drawings image
     @return: QImage
     '''
-    base = source.scaled(overlay.size(), Qt.IgnoreAspectRatio)
+    base = source.scaled(overlay.size(), Qt.AspectRatioMode.IgnoreAspectRatio)
 
     p = QPainter()
-    p.setRenderHint(QPainter.HighQualityAntialiasing)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing)
     p.begin(base)
     #with CompositionMode_SourceOut we have a black image at the end.
-    p.setCompositionMode(QPainter.CompositionMode_SourceOver)
+    p.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
     p.drawImage(0, 0, overlay)
     p.end()
 
     # Restore size
-    base = base.scaled(source.size(), Qt.IgnoreAspectRatio)
+    base = base.scaled(source.size(), Qt.AspectRatioMode.IgnoreAspectRatio)
     return base

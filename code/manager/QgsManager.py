@@ -3,9 +3,8 @@ import ast
 from configparser import ConfigParser
 import os
 from os.path import dirname, abspath
-from qgis.PyQt.Qt  import QSettings, pyqtSlot, QEvent, Qt, QCoreApplication, QPoint
 from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtCore import QUrl, QTimer
+from qgis.PyQt.QtCore import QUrl, QTimer, pyqtSlot, QCoreApplication, QEvent, QPoint, QSettings, Qt
 from qgis.PyQt.QtWidgets import (QDockWidget,
                                  QTableWidgetItem,
                                  QAction,
@@ -14,15 +13,16 @@ from qgis.PyQt.QtWidgets import (QDockWidget,
                                  QVBoxLayout,
                                  QWidget)
 import qgis.utils
+from qgis.core import Qgis
 
-from PyQt5.QtGui import QColor
+from qgis.PyQt.QtGui import QColor
 
 from QGIS_FMV.player.QgsFmvDrawToolBar import DrawToolBar as draw
 from QGIS_FMV.converter.ffmpeg import FFMpeg
 from QGIS_FMV.gui.ui_FmvManager import Ui_ManagerWindow
 from QGIS_FMV.manager.QgsMultiplexor import Multiplexor
 from QGIS_FMV.manager.QgsFmvOpenStream import OpenStream
-from QGIS_FMV.player.QgsFmvPlayer import QgsFmvPlayer, QMediaContent
+from QGIS_FMV.player.QgsFmvPlayer import QgsFmvPlayer
 from QGIS_FMV.utils.QgsFmvUtils import (askForFiles,
                                         BufferedMetaReader,
                                         StreamMetaReader,
@@ -37,7 +37,6 @@ from QGIS_FMV.utils.QgsFmvUtils import (askForFiles,
                                         getVideoLocationInfo)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.core import QgsPointXY, QgsCoordinateReferenceSystem, QgsProject, QgsCoordinateTransform, Qgis as QGis
-from PyQt5.QtMultimedia import QMediaPlaylist
 
 
 try:
@@ -48,6 +47,68 @@ except ImportError:
 s = QSettings()
 parser = ConfigParser()
 parser.read(os.path.join(dirname(dirname(abspath(__file__))), 'settings.ini'))
+
+
+class QMediaPlaylist:
+    """
+    Drop in replacement for Qt 5 QMediaPlaylist
+    this is not a 1-to-1 remplacement, the philosophy:
+    * A minimalistic approch is used to only implement methods as needed
+    * as some api like QMediaContent have been removed and are remplaced here
+    """
+
+    def __init__(self):
+        self._index = -1
+        self._medias = []
+
+    def setCurrentIndex(self, index):
+        if index < 0 or index >= self.mediaCount():
+            self._index = -1
+        
+        self._index = index
+
+    def addMedia(self, mediaUrl):
+        self._medias.append(mediaUrl)
+
+    def removeMedia(self, idx):
+        if idx <= self._index:
+            self._index -= 1 
+        self._medias.pop(idx)
+
+    def mediaCount(self):
+        return len(self._medias)
+    
+    def media(self, idx):
+        return self._medias[idx]
+
+    def currentIndex(self):
+        return self._index
+    
+    def nextIndex(self):
+        if self._index == -1:
+            return -1  
+        r = self._index + 1
+        if 0 <= r < self.mediaCount():
+            return r
+        return -1
+
+    def next(self):
+        try:
+            return self._medias[self._index + 1]
+        except:
+            return None
+        
+    def isFileInPlaylist(self, filename):
+        for x in range(self.mediaCount()):
+            try:
+                if filename in self.media(x).canonicalUrl().toString():
+                    return True
+            except:
+                if filename in self.media(x).toString():
+                    return True
+        return False
+    
+
 
 class FmvManager(QWidget, Ui_ManagerWindow):
     ''' Video Manager '''
@@ -83,7 +144,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.VManager.setColumnWidth(3, 250)
         self.VManager.setColumnWidth(4, 150)
         self.VManager.setColumnWidth(5, 130)                                    
-        self.VManager.verticalHeader().setDefaultAlignment(Qt.AlignHCenter)
+        self.VManager.verticalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.VManager.hideColumn(0)
         
         self.videoPlayable = []
@@ -117,7 +178,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     
     def eventFilter(self, source, event):
         ''' Event Filter '''
-        if (event.type() == QEvent.MouseButtonPress and source is self.VManager.viewport() and self.VManager.itemAt(event.pos()) is None):
+        if (event.type() == QEvent.Type.MouseButtonPress and source is self.VManager.viewport() and self.VManager.itemAt(event.pos()) is None):
             self.VManager.clearSelection()
         return QDockWidget.eventFilter(self, source, event)
 
@@ -128,7 +189,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             return
         menu = QMenu()
         menu.addAction(self.removeAct)
-        menu.exec_(self.VManager.mapToGlobal(position))
+        menu.exec(self.VManager.mapToGlobal(position))
 
     def remove(self):
         ''' Remove current row ''' 
@@ -192,15 +253,15 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     def openStreamDialog(self):
         ''' Open Stream Dialog '''
         self.OpenStream = OpenStream(self.iface, parent=self)
-        self.OpenStream.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
-        self.OpenStream.exec_()
+        self.OpenStream.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
+        self.OpenStream.exec()
         return
 
     def openMuiltiplexorDialog(self):
         ''' Open Multiplexor Dialog '''
         self.Muiltiplexor = Multiplexor(self.iface, parent=self, Exts=ast.literal_eval(parser.get("FILES", "Exts")))
-        self.Muiltiplexor.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
-        self.Muiltiplexor.exec_()
+        self.Muiltiplexor.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
+        self.Muiltiplexor.exec()
         return
 
     def AddFileRowToManager(self, name, filename, load_id=None, islocal=False, klv_folder=None):
@@ -263,7 +324,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
                 self.ToggleActiveRow(rowPosition, value="Missing source file")
                 for j in range(self.VManager.columnCount()):
                     try:
-                        self.VManager.item(rowPosition, j).setFlags(Qt.NoItemFlags | Qt.ItemIsEnabled)
+                        self.VManager.item(rowPosition, j).setFlags(Qt.ItemFlag.NoItemFlags | Qt.ItemFlag.ItemIsEnabled)
                         self.VManager.item(rowPosition, j).setBackground(QColor(211, 211, 211))
                     except Exception:
                         self.VManager.cellWidget(rowPosition, j).setStyleSheet("background-color:rgb(211,211,211);")
@@ -320,8 +381,14 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         else:
             url = QUrl.fromLocalFile(filename)
         
-        self.playlist.addMedia(QMediaContent(url))
         
+        if Qgis.QGIS_VERSION_INT < 40000:
+            # Remove once Kadas 2.3 is out of use
+            from qgis.PyQt.QtMultimedia import QMediaContent
+            self.playlist.addMedia(QMediaContent(url))
+        else:
+            self.playlist.addMedia(url)
+            
         if self.videoPlayable[rowPosition]:
             pbar.setValue(100)
             if islocal:
@@ -356,11 +423,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     
     
     def isFileInPlaylist(self, filename):
-        mcount = self.playlist.mediaCount()
-        for x in range(mcount):
-            if filename in self.playlist.media(x).canonicalUrl().toString():
-                return True
-        return False
+        return self.playlist.isFileInPlaylist(filename)
     
     def PlayVideoFromManager(self, model):
         ''' Play video from manager dock.
@@ -419,8 +482,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         if self.initialPt[row][1] != None and self.initialPt[row][0] != None:
             map_pos = QgsPointXY(self.initialPt[row][1], self.initialPt[row][0])
             if curAuthId != "EPSG:4326":
-                trgCode=int(curAuthId.split(":")[1])
-                xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
+                xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateReferenceSystem(curAuthId), QgsProject().instance())
                 map_pos = xform.transform(map_pos)
                 
             self.iface.mapCanvas().setCenter(map_pos)
@@ -433,8 +495,8 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self._PlayerDlg = QgsFmvPlayer(self.iface, path, interval, parent=self, meta_reader=self.meta_reader[
             row], pass_time=self.pass_time, islocal=islocal, klv_folder=klv_folder)
                     
-        self._PlayerDlg.player.setPlaylist(self.playlist)
-        self._PlayerDlg.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+        self._PlayerDlg.setPlaylist(self.playlist)
+        self._PlayerDlg.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint)
         self._PlayerDlg.show()
         self._PlayerDlg.activateWindow()
 
@@ -491,7 +553,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             e.acceptProposedAction()
         #Ignore and stop propagation
         else:
-            e.setDropAction(Qt.IgnoreAction)
+            e.setDropAction(Qt.DropAction.IgnoreAction)
             e.accept()
 
     def dropEvent(self, e):

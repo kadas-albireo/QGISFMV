@@ -638,7 +638,7 @@ def SetDefaultFootprintStyle(mapItem, sensor='DEFAULT'):
 
     c = qRgba(int(tmp[0]), int(tmp[1]), int(tmp[2]), int(tmp[3]))
     b.setColor(QColor.fromRgba(c))
-    b.setStyle(Qt.SolidPattern)
+    b.setStyle(Qt.BrushStyle.SolidPattern)
     mapItem.setFill(b)
     
 
@@ -666,7 +666,7 @@ def SetDefaultTrajectoryStyle(mapItem):
     mPen = QPen()
     mPen.setColor(QColor(style['COLOR']))
     mPen.setWidth(int(style['WIDTH']))
-    mPen.setStyle(Qt.DashDotLine)
+    mPen.setStyle(Qt.PenStyle.DashDotLine)
 
     mapItem.setOutline( mPen )
     
@@ -794,7 +794,7 @@ def SetDefaultFrameAxisStyle(mapItem, sensor='DEFAULT'):
     mPen = QPen()
     mPen.setColor(QColor(sensor_style['OUTLINE_COLOR']))
     mPen.setWidth(int(style['OUTLINE_WIDTH']))
-    mPen.setStyle(Qt.DashLine)
+    mPen.setStyle(Qt.PenStyle.DashLine)
 
     mapItem.setOutline( mPen );
 
@@ -844,7 +844,7 @@ def SetDefaultPolygonStyle(mapItem):
 
     c = qRgba(int(tmp[0]), int(tmp[1]), int(tmp[2]), int(tmp[3]))
     b.setColor(QColor.fromRgba(c))
-    b.setStyle(Qt.SolidPattern)
+    b.setStyle(Qt.BrushStyle.SolidPattern)
     mapItem.setFill(b)
 
 def SetDefaultBeamsStyle(mapItem, beam='DEFAULT'):
