@@ -169,7 +169,6 @@ class VideoWidgetSink(QVideoSink):
     def paint(self, painter):
         ''' Paint Frame'''
 
-        start_time = time.time()
 
         if self.flag__first_setup == False:
             if self._currentFrame != None and  self._currentFrame.isValid():
@@ -222,7 +221,6 @@ class VideoWidgetSink(QVideoSink):
 
 
 
-        print("end_time", time.time()  - start_time )
         return
 
 
