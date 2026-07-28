@@ -38,7 +38,7 @@ from qgis.gui import QgsRubberBand
 
 from qgis.utils import iface
 from QGIS_FMV.utils.QgsFmvStyles import FmvLayerStyles as S
-from kadas._kadasgui import (KadasSymbolItem, KadasItemPos, KadasMapCanvasItemManager, KadasPointItem, KadasPolygonItem, KadasTextItem, KadasLineItem)
+from kadas._kadasgui import (KadasSymbolItem, KadasItemPos, KadasMapCanvasItemManager, KadasPointItem, KadasPolygonItem)
 from itertools import groupby
 
 try:
@@ -74,9 +74,11 @@ Polygon = 'Polygon'
 platformMarker=''
 frameCenterMarker=''
 frameAxisMarker=''
+rbFrameAxisMarker = None
 footprintMarker=''
 footprintRubberBand = None
 trajectoryMarker=''
+rbTrajectoryMarker = None
 lastTrajectoryEle=''
 linesEle=[]
 pointsEle=[]
@@ -174,6 +176,7 @@ def RemoveAllDrawings():
     global crtSensorSrc, crtPltTailNum, platformMarker, frameCenterMarker, trajectoryMarker, frameAxisMarker, footprintMarker, beamMarkerUR, beamMarkerUL, beamMarkerLL, beamMarkerLR, linesEle, pointsEle, pointsLblEle, polygonsEle, lastTrajectoryEle
     global footprintRubberBand
     global rbBeamMarkerUR, rbBeamMarkerUL, rbBeamMarkerLL, rbBeamMarkerLR
+    global rbTrajectoryMarker, rbFrameAxisMarker
 
 
     #qgsu.showUserAndLogMessage("", "Clearing all mapItems drawings.")
@@ -220,7 +223,13 @@ def RemoveAllDrawings():
         rbBeamMarkerLR.reset(Qgis.GeometryType.Line)        
         rbBeamMarkerLR = None 
 
-    
+    if rbTrajectoryMarker is not None:
+        rbTrajectoryMarker.reset(Qgis.GeometryType.Line)
+        rbTrajectoryMarker = None
+
+    if rbFrameAxisMarker is not None:
+        rbFrameAxisMarker.reset(Qgis.GeometryType.Line)
+        rbFrameAxisMarker = None
 
     crtSensorSrc, crtPltTailNum, lastTrajectoryEle, platformMarker, frameCenterMarker, trajectoryMarker, frameAxisMarker, footprintMarker, beamMarkerUR, beamMarkerUL, beamMarkerLL, beamMarkerLR = 'DEFAULT', 'DEFAULT', '', '', '', '', '', '', '', '', '', ''
     linesEle, pointsEle, pointsLblEle, polygonsEle = [], [], [], []
@@ -438,11 +447,11 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
             rbBeamMarkerUL = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
             # rbBeamMarkerUL.setColor(QColor("blue"))
             
-            beamMarkerUL = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+            # beamMarkerUL = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             # SetDefaultBeamsStyle(beamMarkerUL)
             SetDefaultBeamsStyle(rbBeamMarkerUL)
             #KadasMapCanvasItemManager.addItem( beamMarkerUL )
-            beamMarkerUL.setZIndex( 80 )
+            # beamMarkerUL.setZIndex( 80 )
         
         rbBeamMarkerUL.reset()
         geom = QgsGeometry.fromPolyline([QgsPoint(lon, lat, alt), QgsPoint(cornerPointUL[1], cornerPointUL[0])])
@@ -451,10 +460,10 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         #ur
         if rbBeamMarkerUR is None:
             rbBeamMarkerUR = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
-            beamMarkerUR = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+            # beamMarkerUR = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             SetDefaultBeamsStyle(rbBeamMarkerUR)
             #KadasMapCanvasItemManager.addItem( beamMarkerUR )
-            beamMarkerUR.setZIndex( 80 )
+            # beamMarkerUR.setZIndex( 80 )
         
         rbBeamMarkerUR.reset()
         geom = QgsGeometry.fromPolyline([QgsPoint(lon, lat, alt), QgsPoint(cornerPointUR[1], cornerPointUR[0])])
@@ -463,10 +472,10 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         #lr
         if rbBeamMarkerLR is None:
             rbBeamMarkerLR = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
-            beamMarkerLR = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+            # beamMarkerLR = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             SetDefaultBeamsStyle(rbBeamMarkerLR)
             #KadasMapCanvasItemManager.addItem( beamMarkerLR )
-            beamMarkerLR.setZIndex( 80 )
+            # beamMarkerLR.setZIndex( 80 )
         
         rbBeamMarkerLR.reset()
         geom = QgsGeometry.fromPolyline([QgsPoint(lon, lat, alt), QgsPoint(cornerPointLR[1], cornerPointLR[0])])
@@ -475,10 +484,10 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         #ll
         if rbBeamMarkerLL is None:
             rbBeamMarkerLL = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
-            beamMarkerLL = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+            # beamMarkerLL = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             SetDefaultBeamsStyle(rbBeamMarkerLL)
             #KadasMapCanvasItemManager.addItem( beamMarkerLL )
-            beamMarkerLL.setZIndex( 80 )
+            # beamMarkerLL.setZIndex( 80 )
         
         rbBeamMarkerLL.reset()
         geom = QgsGeometry.fromPolyline([QgsPoint(lon, lat, alt), QgsPoint(cornerPointLL[1], cornerPointLL[0])])
@@ -488,6 +497,7 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
 
 def UpdateTrajectoryData(packet, ele):
     global trajectoryMarker, lastTrajectoryEle
+    global rbTrajectoryMarker
     ''' Update Trajectory Values '''
     lat = packet.SensorLatitude
     lon = packet.SensorLongitude
@@ -495,15 +505,21 @@ def UpdateTrajectoryData(packet, ele):
     if all(v is not None for v in [lat, lon, alt]):
     
         if lastTrajectoryEle != '':
-            if trajectoryMarker == '':
-                trajectoryMarker = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
-                KadasMapCanvasItemManager.addItem( trajectoryMarker )
-                SetDefaultTrajectoryStyle(trajectoryMarker)
-                trajectoryMarker.setZIndex( 80 )
+            if rbTrajectoryMarker is None:
+                rbTrajectoryMarker = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
+
+                # trajectoryMarker = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+                # KadasMapCanvasItemManager.addItem( trajectoryMarker )
+                SetDefaultTrajectoryStyle(rbTrajectoryMarker)
+                # trajectoryMarker.setZIndex( 80 )
             
-            geom = QgsLineString(QgsPoint(lastTrajectoryEle.SensorLongitude, lastTrajectoryEle.SensorLatitude, alt), QgsPoint(lon, lat, alt))
-            trajectoryMarker.addPartFromGeometry(geom)
-        
+            # geom = QgsLineString(QgsPoint(lastTrajectoryEle.SensorLongitude, lastTrajectoryEle.SensorLatitude, alt), QgsPoint(lon, lat, alt))
+            # trajectoryMarker.addPartFromGeometry(geom)
+
+            rbTrajectoryMarker.reset()
+            geom = QgsGeometry.fromPolyline([QgsPoint(lastTrajectoryEle.SensorLongitude, lastTrajectoryEle.SensorLatitude, alt), QgsPoint(lon, lat, alt)])
+            rbTrajectoryMarker.setToGeometry(geom, QgsCoordinateReferenceSystem("EPSG:4326"))
+
         lastTrajectoryEle = packet
         
     return
@@ -513,6 +529,7 @@ def UpdateTrajectoryData(packet, ele):
 def UpdateFrameAxisData(imgSS, sensor, framecenter, ele):
     ''' Update Frame Axis Values '''
     global crtSensorSrc2, groupName, frameAxisMarker
+    global rbFrameAxisMarker
 
     lat = sensor[0]
     lon = sensor[1]
@@ -523,15 +540,21 @@ def UpdateFrameAxisData(imgSS, sensor, framecenter, ele):
     
     if all(v is not None for v in [lat, lon, alt, fc_lat, fc_lon]):
     
-        if frameAxisMarker == '':
-            frameAxisMarker = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
-            KadasMapCanvasItemManager.addItem( frameAxisMarker )
-            SetDefaultFrameAxisStyle(frameAxisMarker)
-            frameAxisMarker.setZIndex( 80 )
+        if rbFrameAxisMarker is None:
+            rbFrameAxisMarker = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
+            # frameAxisMarker = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+            # KadasMapCanvasItemManager.addItem( frameAxisMarker )
+            SetDefaultFrameAxisStyle(rbFrameAxisMarker)
+            # frameAxisMarker.setZIndex( 80 )
         
-        frameAxisMarker.clear()
-        geom = QgsLineString(QgsPoint(lon, lat, alt), QgsPoint(fc_lon, fc_lat, fc_alt))
-        frameAxisMarker.addPartFromGeometry(geom)
+        # frameAxisMarker.clear()
+        # geom = QgsLineString(QgsPoint(lon, lat, alt), QgsPoint(fc_lon, fc_lat, fc_alt))
+        # frameAxisMarker.addPartFromGeometry(geom)
+
+        rbFrameAxisMarker.reset()
+        geom = QgsGeometry.fromPolyline([QgsPoint(lon, lat, alt), QgsPoint(fc_lon, fc_lat, fc_alt)])
+        rbFrameAxisMarker.setToGeometry(geom, QgsCoordinateReferenceSystem("EPSG:4326"))
+        
     
     return
 
@@ -779,16 +802,13 @@ def SetDefaultFootprint3DStyle(layer):
     return
 
 
-def SetDefaultTrajectoryStyle(mapItem):
+def SetDefaultTrajectoryStyle(mapRubberBand:QgsRubberBand):
     ''' Trajectory Symbol '''
     style = S.getTrajectory('DEFAULT')
     
-    mPen = QPen()
-    mPen.setColor(QColor(style['COLOR']))
-    mPen.setWidth(int(style['WIDTH']))
-    mPen.setStyle(Qt.PenStyle.DashDotLine)
-
-    mapItem.setOutline( mPen )
+    mapRubberBand.setStrokeColor(QColor(style['COLOR']))
+    mapRubberBand.setWidth(int(style['WIDTH']))
+    mapRubberBand.setLineStyle(Qt.PenStyle.DashDotLine)
     
 
 def SetDefaultPlatformStyle(mapItem, platform='DEFAULT'):
@@ -906,17 +926,15 @@ def SetDefaultFrameCenter3DStyle(layer):
     return
 
 
-def SetDefaultFrameAxisStyle(mapItem, sensor='DEFAULT'):
+def SetDefaultFrameAxisStyle(mapRubberBand:QgsRubberBand, sensor='DEFAULT'):
     ''' Line Symbol '''
     sensor_style = S.getSensor(sensor)
     style = S.getFrameAxis()
 
-    mPen = QPen()
-    mPen.setColor(QColor(sensor_style['OUTLINE_COLOR']))
-    mPen.setWidth(int(style['OUTLINE_WIDTH']))
-    mPen.setStyle(Qt.PenStyle.DashLine)
 
-    mapItem.setOutline( mPen );
+    mapRubberBand.setStrokeColor(QColor(sensor_style['OUTLINE_COLOR']))
+    mapRubberBand.setWidth(int(style['OUTLINE_WIDTH']))
+    mapRubberBand.setLineStyle(Qt.PenStyle.DashLine)
 
 
 def SetDefaultPointStyle(mapItem, textItem):
