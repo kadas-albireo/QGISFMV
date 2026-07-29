@@ -95,6 +95,39 @@ rbBeamMarkerUL = None
 rbBeamMarkerLL = None
 rbBeamMarkerLR = None
 
+def SetDefaultLineStyle(lineRubberband:QgsRubberBand):
+    ''' Line Symbol '''
+    style = S.getDrawingLine()
+    # mPen = QPen()
+    # mPen.setColor(style['COLOR'])
+    # mPen.setWidth(style['WIDTH'])
+    lineRubberband.setStrokeColor(QColor(style['COLOR']))
+    lineRubberband.setWidth(int(style['WIDTH']))
+    
+
+def SetDefaultPolygonStyle(polygonRubberband:QgsRubberBand):
+    ''' Polygon Symbol '''
+    style = S.getDrawingPolygon()
+        
+    # mPen = QPen()
+    # mPen.setColor(QColor(style['OUTLINE_COLOR']))
+    # mPen.setWidth(int(style['OUTLINE_WIDTH']))
+    # mapItem.setOutline( mPen )
+
+    polygonRubberband.setStrokeColor(QColor(style['OUTLINE_COLOR']))
+    polygonRubberband.setWidth(int(style['OUTLINE_WIDTH']))
+    
+    # b = QBrush()
+    tmp = style['COLOR'].split(',')
+
+    c = qRgba(int(tmp[0]), int(tmp[1]), int(tmp[2]), int(tmp[3]))
+    # b.setColor(QColor.fromRgba(c))
+    # b.setStyle(Qt.BrushStyle.SolidPattern)
+    # mapItem.setFill(b)
+
+    polygonRubberband.setFillColor(QColor.fromRgba(c))
+
+
 rbPointsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
 # rbPointsEle.setIcon(QgsRubberBand.IconType.ICON_CROSS )
 rbPointsEle.setIconSize(30)
@@ -103,13 +136,12 @@ rbPointsEle.setZValue(100)
 
 
 rbLinesEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
-rbLinesEle.setColor(QColor("green"))
-rbLinesEle.setWidth(3)
+SetDefaultLineStyle(rbLinesEle)
+
 rbLinesEle.setZValue(90)
 
 rbPolygonsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Polygon)
-rbPolygonsEle.setColor(QColor("green"))
-rbPolygonsEle.setWidth(3)
+SetDefaultPolygonStyle(rbPolygonsEle)
 rbPolygonsEle.setZValue(90)
 
 
@@ -1000,31 +1032,6 @@ def SetDefaultPointStyle(mapItem, textItem):
     return
 
 
-def SetDefaultLineStyle(mapItem):
-    ''' Line Symbol '''
-    style = S.getDrawingLine()
-    mPen = QPen()
-    mPen.setColor(style['COLOR'])
-    mPen.setWidth(style['WIDTH'])
-    mapItem.setOutline( mPen )
-    
-
-def SetDefaultPolygonStyle(mapItem):
-    ''' Polygon Symbol '''
-    style = S.getDrawingPolygon()
-        
-    mPen = QPen()
-    mPen.setColor(QColor(style['OUTLINE_COLOR']))
-    mPen.setWidth(int(style['OUTLINE_WIDTH']))
-    mapItem.setOutline( mPen )
-    
-    b = QBrush()
-    tmp = style['COLOR'].split(',')
-
-    c = qRgba(int(tmp[0]), int(tmp[1]), int(tmp[2]), int(tmp[3]))
-    b.setColor(QColor.fromRgba(c))
-    b.setStyle(Qt.BrushStyle.SolidPattern)
-    mapItem.setFill(b)
 
 def SetDefaultBeamsStyle(mapRubberBand:QgsRubberBand, beam='DEFAULT'):
     ''' Beams Symbol'''
