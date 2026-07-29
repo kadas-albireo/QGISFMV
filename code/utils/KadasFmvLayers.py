@@ -166,8 +166,9 @@ def GetMapItems():
     return {
         "platform": platformMarker,
         "framecenter": frameCenterMarker,
-        "footprint": footprintMarker
-        # "footprint": footprintRubberBand
+        "footprint": footprintRubberBand
+        # "footprint": footprintMarker
+
     }
     
 
@@ -406,15 +407,16 @@ def UpdateFootPrintData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cor
         if footprintRubberBand is None:
             footprintRubberBand = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Polygon)
             # footprintRubberBand.setColor(QColor("red"))
-            footprintMarker = KadasPolygonItem(QgsCoordinateReferenceSystem("EPSG:4326"))
+            # footprintMarker = KadasPolygonItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             # KadasMapCanvasItemManager.addItem( footprintMarker )
-            footprintMarker.setZIndex( 90 )
+            # footprintMarker.setZIndex( 90 )
         
         if(imgSS != crtSensorSrc):
             SetDefaultFootprintStyle(footprintRubberBand, imgSS)
             crtSensorSrc = imgSS
             
-        footprintMarker.clear()
+        # footprintMarker.clear()
+        footprintRubberBand.reset(Qgis.GeometryType.Polygon)
         geom = QgsGeometry.fromPolygonXY([[
                     QgsPointXY(cornerPointUL[1],
                                cornerPointUL[0]),
@@ -427,7 +429,7 @@ def UpdateFootPrintData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cor
                     QgsPointXY(cornerPointUL[1], cornerPointUL[0])]])
         
         footprintRubberBand.setToGeometry(geom, QgsCoordinateReferenceSystem("EPSG:4326"))
-        footprintMarker.addPartFromGeometry(geom.get())
+        # footprintMarker.addPartFromGeometry(geom.get())
     
     return
 

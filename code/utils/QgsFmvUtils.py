@@ -1007,10 +1007,14 @@ def UpdateLayers(packet, parent=None, mosaic=False, group=None):
         xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateReferenceSystem(curAuthId), QgsProject().instance())
         transP = xform.transform(QgsPointXY(items["platform"].position().x(), items["platform"].position().y()))
         transT = xform.transform(QgsPointXY(items["framecenter"].position().x(), items["framecenter"].position().y()))
+
+        # rect = items["footprint"].geometry().boundingBox()
+        # rectLL = xform.transform(QgsPointXY(rect.xMinimum(),rect.yMinimum()))
+        # rectUR = xform.transform(QgsPointXY(rect.xMaximum(),rect.yMaximum()))
         
-        rect = items["footprint"].geometry().boundingBox()
-        rectLL = xform.transform(QgsPointXY(rect.xMinimum(),rect.yMinimum()))
-        rectUR = xform.transform(QgsPointXY(rect.xMaximum(),rect.yMaximum()))
+        rect = items["footprint"].asGeometry().boundingBox()
+        rectLL = QgsPointXY(rect.xMinimum(),rect.yMinimum())
+        rectUR = QgsPointXY(rect.xMaximum(),rect.yMaximum())
         
         f_lyr_out_extent = QgsRectangle(rectLL, rectUR)
         t_lyr_out_extent = QgsRectangle(transT.x(), transT.y(), transT.x(), transT.y())
