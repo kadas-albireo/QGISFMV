@@ -276,6 +276,7 @@ class VideoWidget(QVideoWidget):
         self.Cursor_Canvas_RubberBand.setWidth(4)
         self.Cursor_Canvas_RubberBand.setColor(QColor(255, 100, 100, 250))
         self.Cursor_Canvas_RubberBand.setIcon(QgsRubberBand.ICON_FULL_DIAMOND)
+        self.Cursor_Canvas_RubberBand.setZValue(110)
 
         self.parent = parent.parent()
 

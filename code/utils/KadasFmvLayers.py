@@ -99,14 +99,18 @@ rbPointsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
 # rbPointsEle.setIcon(QgsRubberBand.IconType.ICON_CROSS )
 rbPointsEle.setIconSize(30)
 rbPointsEle.setFillColor(QColor("green"))
+rbPointsEle.setZValue(100)
+
 
 rbLinesEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
 rbLinesEle.setColor(QColor("green"))
 rbLinesEle.setWidth(3)
+rbLinesEle.setZValue(90)
 
 rbPolygonsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Polygon)
 rbPolygonsEle.setColor(QColor("green"))
 rbPolygonsEle.setWidth(3)
+rbPolygonsEle.setZValue(90)
 
 
 def AddDrawPointOnMap(pointIndex, Longitude, Latitude, Altitude):
@@ -416,6 +420,7 @@ def UpdateFootPrintData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cor
         
         if footprintRubberBand is None:
             footprintRubberBand = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Polygon)
+            footprintRubberBand.setZValue(80)
             # footprintRubberBand.setColor(QColor("red"))
             # footprintMarker = KadasPolygonItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             # KadasMapCanvasItemManager.addItem( footprintMarker )
@@ -457,6 +462,7 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         #ul
         if rbBeamMarkerUL is None:
             rbBeamMarkerUL = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
+            rbBeamMarkerUL.setZValue(80)
             # rbBeamMarkerUL.setColor(QColor("blue"))
             
             # beamMarkerUL = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
@@ -472,6 +478,7 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         #ur
         if rbBeamMarkerUR is None:
             rbBeamMarkerUR = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
+            rbBeamMarkerUR.setZValue(80)
             # beamMarkerUR = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             SetDefaultBeamsStyle(rbBeamMarkerUR)
             #KadasMapCanvasItemManager.addItem( beamMarkerUR )
@@ -484,6 +491,7 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         #lr
         if rbBeamMarkerLR is None:
             rbBeamMarkerLR = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
+            rbBeamMarkerLR.setZValue(80)
             # beamMarkerLR = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             SetDefaultBeamsStyle(rbBeamMarkerLR)
             #KadasMapCanvasItemManager.addItem( beamMarkerLR )
@@ -496,6 +504,7 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         #ll
         if rbBeamMarkerLL is None:
             rbBeamMarkerLL = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
+            rbBeamMarkerLL.setZValue(80)
             # beamMarkerLL = KadasLineItem(QgsCoordinateReferenceSystem("EPSG:4326"))
             SetDefaultBeamsStyle(rbBeamMarkerLL)
             #KadasMapCanvasItemManager.addItem( beamMarkerLL )
