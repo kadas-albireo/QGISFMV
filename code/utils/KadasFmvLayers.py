@@ -518,9 +518,9 @@ def UpdateTrajectoryData(packet, ele):
             # geom = QgsLineString(QgsPoint(lastTrajectoryEle.SensorLongitude, lastTrajectoryEle.SensorLatitude, alt), QgsPoint(lon, lat, alt))
             # trajectoryMarker.addPartFromGeometry(geom)
 
-            rbTrajectoryMarker.reset()
+            # rbTrajectoryMarker.reset()
             geom = QgsGeometry.fromPolyline([QgsPoint(lastTrajectoryEle.SensorLongitude, lastTrajectoryEle.SensorLatitude, alt), QgsPoint(lon, lat, alt)])
-            rbTrajectoryMarker.setToGeometry(geom, QgsCoordinateReferenceSystem("EPSG:4326"))
+            rbTrajectoryMarker.addGeometry(geom, QgsCoordinateReferenceSystem("EPSG:4326"))
 
         lastTrajectoryEle = packet
         
