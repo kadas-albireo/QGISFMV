@@ -20,9 +20,24 @@ except ImportError:
 class VideoUtils(object):
 
     @staticmethod
+    def _eventXY(event):
+        '''Return (x, y) from either a QMouseEvent or a plain QPoint.
+
+        Qt6 removed QMouseEvent.x()/y()/pos() (use .position(), a QPointF,
+        instead), but this helper is called both with real mouse events and
+        with plain QPoint objects built elsewhere in the plugin (which still
+        have .x()/.y()) - so branch on which API is available.
+        @return: (x, y)
+        '''
+        if hasattr(event, "position"):
+            pos = event.position()
+            return pos.x(), pos.y()
+        return event.x(), event.y()
+
+    @staticmethod
     def GetNormalizedWidth(surface):
         '''Calculate normalized Width
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return: double
         '''
@@ -76,7 +91,7 @@ class VideoUtils(object):
     @staticmethod
     def GetXRatio(surface):
         '''ratio between event.x() and real image width on screen.
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return: double
         '''
@@ -85,7 +100,7 @@ class VideoUtils(object):
     @staticmethod
     def GetYRatio(surface):
         '''ratio between event.y() and real image height on screen.
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return: double
         '''
@@ -94,7 +109,7 @@ class VideoUtils(object):
     @staticmethod
     def GetXBlackZone(surface):
         '''Return is X in black screen on video
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return: double
         '''
@@ -110,7 +125,7 @@ class VideoUtils(object):
     @staticmethod
     def GetNormalizedHeight(surface):
         '''Calculate normalized Height
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return: double
         '''
@@ -120,7 +135,7 @@ class VideoUtils(object):
     @staticmethod
     def GetYBlackZone(surface):
         '''Return is Y in black screen on video
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return: double
         '''
@@ -143,7 +158,7 @@ class VideoUtils(object):
         @type y: int
         @param y:
 
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return: bool
          '''
@@ -163,13 +178,14 @@ class VideoUtils(object):
         @type event: QMouseEvent
         @param event:
 
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return:
         '''
         gt = GetGCPGeoTransform()
-        #return gt([(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)])
-        imagepoint = [(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface), 1]
+        ex, ey = VideoUtils._eventXY(event)
+        #return gt([(ex - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (ey - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)])
+        imagepoint = [(ex - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (ey - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface), 1]
         worldpoint = np.array(np.dot(gt, imagepoint))
         scalar = worldpoint[2]
         xworld = worldpoint[0]/scalar
@@ -183,14 +199,15 @@ class VideoUtils(object):
         @type event: QMouseEvent
         @param event:
 
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return:
         '''
         
         gt = GetGeotransform_affine()
-        x=(event.x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface)
-        y=(event.y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)
+        ex, ey = VideoUtils._eventXY(event)
+        x=(ex - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface)
+        y=(ey - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)
         x1, y1 = gdal.ApplyGeoTransform(gt, x, y)
         return [y1, x1]
 
@@ -200,7 +217,7 @@ class VideoUtils(object):
         @type event: QMouseEvent
         @param event:
 
-        @type surface: QAbstractVideoSurface
+        @type surface: VideoWidgetSurface (QVideoSink-based)
         @param surface: Abstract video surface
         @return:
         '''

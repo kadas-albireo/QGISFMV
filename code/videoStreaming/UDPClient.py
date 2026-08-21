@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from qgis.PyQt import QtGui, QtNetwork
-from qgis.PyQt.Qt import QImage, QByteArray, QBuffer, Qt, QImageReader, QColor, QImageWriter, QTransform, QPixmap
+from qgis.PyQt.QtCore import QByteArray, QBuffer, Qt
+from qgis.PyQt.QtGui import QImage, QImageReader, QColor, QImageWriter, QTransform, QPixmap
 from qgis.PyQt.QtCore import QByteArray
 from qgis.PyQt.QtGui import QPixmap, QImage
 from qgis.PyQt.QtNetwork import QUdpSocket, QHostAddress

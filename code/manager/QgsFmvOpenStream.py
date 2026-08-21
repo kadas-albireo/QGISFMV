@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-from qgis.PyQt.QtCore import QRegExp, QCoreApplication, Qt
-from qgis.PyQt.QtGui import QIntValidator, QRegExpValidator
+from qgis.PyQt.QtCore import QRegularExpression, QCoreApplication, Qt
+from qgis.PyQt.QtGui import QIntValidator, QRegularExpressionValidator
 from qgis.PyQt.QtWidgets import QDialog, QApplication
 from QGIS_FMV.gui.ui_FmvOpenStream import Ui_FmvOpenStream
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
@@ -32,10 +32,9 @@ class OpenStream(QDialog, Ui_FmvOpenStream):
         self.ln_port.setValidator(self.onlyInt)
 
         # IP Validator
-        v = QRegExpValidator(self)
-        rx = QRegExp(
+        rx = QRegularExpression(
             "((1{0,1}[0-9]{0,2}|2[0-4]{1,1}[0-9]{1,1}|25[0-5]{1,1})\\.){3,3}(1{0,1}[0-9]{0,2}|2[0-4]{1,1}[0-9]{1,1}|25[0-5]{1,1})")
-        v.setRegExp(rx)
+        v = QRegularExpressionValidator(rx, self)
         self.ln_host.setValidator(v)
 
     def OpenStream(self, _):
@@ -46,7 +45,7 @@ class OpenStream(QDialog, Ui_FmvOpenStream):
         if host != "" and port != "":
             qgsu.showUserAndLogMessage(QCoreApplication.translate(
                 "QgsFmvOpenStream", "Checking connection!"))
-            QApplication.setOverrideCursor(Qt.WaitCursor)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
             QApplication.processEvents()
             # Check if connection exist
             cap = cv2.VideoCapture(v)

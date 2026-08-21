@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from qgis.PyQt.QtCore import Qt, QRect, QPoint, QEvent, QBasicTimer, QSize
+from qgis.PyQt.QtCore import Qt, QRect, QPoint, QPointF, QEvent, QBasicTimer, QSize, QTimer
 from qgis.PyQt.QtGui import (QImage,
                              QPalette,
                              QPainter,
@@ -13,12 +13,10 @@ from qgis.core import QgsProject, QgsPointXY, QgsWkbTypes, QgsCoordinateReferenc
 from qgis.gui import QgsRubberBand
 from qgis.utils import iface
 
-from PyQt5.QtMultimedia import (QAbstractVideoBuffer,
+from qgis.PyQt.QtMultimedia import (QVideoSink,
                                 QVideoFrame,
-                                QAbstractVideoSurface,
                                 QMediaPlayer)
-from PyQt5.QtMultimediaWidgets import QVideoWidget
-from PyQt5.QtWidgets import QApplication
+from qgis.PyQt.QtWidgets import QApplication, QWidget
 
 from QGIS_FMV.geo import mgrs
 from QGIS_FMV.player.QgsFmvDrawToolBar import DrawToolBar as draw
@@ -93,76 +91,60 @@ class FilterState(object):
         return False
 
 
-class VideoWidgetSurface(QAbstractVideoSurface):
+class VideoWidgetSurface(QVideoSink):
+    """ Bridges a QMediaPlayer video output to widget painting.
+
+    Qt6 dropped QAbstractVideoSurface/QAbstractVideoBuffer in favor of
+    QVideoSink + QVideoFrame. QVideoFrame.toImage() now does the pixel-format
+    conversion that used to be done manually here, so this class keeps the
+    same public surface (videoRect/sourceRect/paint/updateVideoRect/isActive)
+    used throughout the rest of the plugin, but implements it on top of the
+    new API.
+    """
 
     def __init__(self, widget):
         ''' Constructor '''
         super().__init__()
 
         self.widget = widget
-        self.imageFormat = QImage.Format_Invalid
         self.image = None
-
-    def supportedPixelFormats(self, handleType=QAbstractVideoBuffer.NoHandle):
-        ''' Available Frames Format '''
-        formats = [QVideoFrame.PixelFormat()]
-        if handleType == QAbstractVideoBuffer.NoHandle:
-            for f in [QVideoFrame.Format_RGB32,
-                      QVideoFrame.Format_ARGB32,
-                      QVideoFrame.Format_ARGB32_Premultiplied,
-                      QVideoFrame.Format_RGB565,
-                      QVideoFrame.Format_RGB555
-                      ]:
-                formats.append(f)
-        return formats
-
-    def isFormatSupported(self, _format):
-        ''' Check if is supported VideFrame format '''
-        imageFormat = QVideoFrame.imageFormatFromPixelFormat(
-            _format.pixelFormat())
-        size = _format.frameSize()
-        _bool = False
-        if (imageFormat != QImage.Format_Invalid and not
-            size.isEmpty() and
-                _format.handleType() == QAbstractVideoBuffer.NoHandle):
-            _bool = True
-        return _bool
-
-    def start(self, _format):
-        ''' Start QAbstractVideoSurface '''
-        imageFormat = QVideoFrame.imageFormatFromPixelFormat(
-            _format.pixelFormat())
-        size = _format.frameSize()
-        if (imageFormat != QImage.Format_Invalid and not size.isEmpty()):
-            self._sourceRect = _format.viewport()
-            QAbstractVideoSurface.start(self, _format)
-            self.imageFormat = imageFormat
-            self.imageSize = size
-            self.widget.updateGeometry()
-            self.updateVideoRect()
-            return True
-        else:
-            return False
-
-    def stop(self):
-        ''' Stop Video '''
-        self._currentFrame = QVideoFrame()
+        self._currentImage = None
+        self._currentFrameSize = QSize()
         self._targetRect = QRect()
-        QAbstractVideoSurface.stop(self)
-        self.widget.update()
+        self._sourceRect = QRect()
+        self._hasPresentedFirstFrame = False
+
+        self.videoFrameChanged.connect(self.present)
+
+    def isActive(self):
+        ''' True while a valid frame has been received '''
+        return self._currentImage is not None
 
     def present(self, frame):
-        ''' Present Frame '''
-        if (self.surfaceFormat().pixelFormat() != frame.pixelFormat() or
-                self.surfaceFormat().frameSize() != frame.size()):
-            self.setError(QAbstractVideoSurface.IncorrectFormatError)
-            # if is a hight quality frame is stopped and not call start function
-            # self.stop()
-            return False
-        else:
-            self._currentFrame = frame
-            self.widget.update()
-            return True
+        ''' Present Frame (connected to videoFrameChanged) '''
+        # Convert to QImage NOW while the frame buffer is guaranteed valid.
+        # Qt6's FFmpeg backend can recycle the underlying buffer before
+        # the deferred paintEvent() runs, making toImage() crash later.
+        if frame.isValid():
+            self._currentImage = frame.toImage()
+            self._currentFrameSize = frame.size()
+            self._sourceRect = frame.surfaceFormat().viewport()
+            self.updateVideoRect()
+        self.widget.update()
+        if frame.isValid() and not self._hasPresentedFirstFrame:
+            self._hasPresentedFirstFrame = True
+            # The very first frame after activation can arrive before the
+            # widget's native window is fully exposed by the platform
+            # (e.g. right after CreatePlayer() changes window flags, which
+            # recreates the native window), so the update() above may be
+            # silently dropped, leaving the widget black until it's closed
+            # and reopened. Queue a second, deferred update() a moment
+            # later to catch up. This only ever touches the new `frame`
+            # argument, never the previous self._currentFrame - reading
+            # the previous QVideoFrame's state right as it's being
+            # replaced was found to crash this Qt Multimedia backend.
+            QTimer.singleShot(50, self.widget.update)
+        return True
 
     def videoRect(self):
         ''' Get Video Rectangle '''
@@ -172,25 +154,27 @@ class VideoWidgetSurface(QAbstractVideoSurface):
         ''' Get Source Rectangle '''
         return self._sourceRect
 
+    def sizeHint(self):
+        ''' Recommended size, based on the current frame '''
+        if not self._currentFrameSize.isEmpty():
+            return self._currentFrameSize
+        return QSize()
+
     def updateVideoRect(self):
         ''' Update video rectangle '''
-        size = self.surfaceFormat().sizeHint()
-        size.scale(self.widget.size().boundedTo(size), Qt.KeepAspectRatio)
+        size = self.sizeHint()
+        if size.isEmpty():
+            return
+        size.scale(self.widget.size().boundedTo(size), Qt.AspectRatioMode.KeepAspectRatio)
         self._targetRect = QRect(QPoint(0, 0), size)
         self._targetRect.moveCenter(self.widget.rect().center())
 
     def paint(self, painter):
         ''' Paint Frame'''
-        if (self._currentFrame.map(QAbstractVideoBuffer.ReadOnly)):
-            oldTransform = painter.transform()
-            painter.setTransform(oldTransform)
+        if self._currentImage is None:
+            return
 
-        self.image = QImage(self._currentFrame.bits(),
-                            self._currentFrame.width(),
-                            self._currentFrame.height(),
-                            self._currentFrame.bytesPerLine(),
-                            self.imageFormat
-                            )
+        self.image = self._currentImage
 
         if self.widget._filterSatate.grayColorFilter:
             self.image = filter.GrayFilter(self.image)
@@ -225,30 +209,33 @@ class VideoWidgetSurface(QAbstractVideoSurface):
                 None
 
         painter.drawImage(self._targetRect, self.image, self._sourceRect)
-        self._currentFrame.unmap()
         return
 
-class VideoWidget(QVideoWidget):
+class VideoWidget(QWidget):
+    """ Note: this used to subclass QVideoWidget, but paintEvent below is
+    fully custom (it never relies on QVideoWidget's own rendering), so on
+    Qt6 it is based directly on QWidget and fed by a QVideoSink (see
+    VideoWidgetSurface above) instead. """
 
     def __init__(self, parent=None):
         ''' Constructor '''
         super().__init__(parent)
         self.surface = VideoWidgetSurface(self)
-        self.setAttribute(Qt.WA_OpaquePaintEvent)
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
 
-        self.Tracking_Video_RubberBand = QRubberBand(QRubberBand.Rectangle, self)
-        self.Censure_RubberBand = QRubberBand(QRubberBand.Rectangle, self)
+        self.Tracking_Video_RubberBand = QRubberBand(QRubberBand.Shape.Rectangle, self)
+        self.Censure_RubberBand = QRubberBand(QRubberBand.Shape.Rectangle, self)
 
-        color_blue = QColor(Qt.blue)
-        color_black = QColor(Qt.black)
+        color_blue = QColor(Qt.GlobalColor.blue)
+        color_black = QColor(Qt.GlobalColor.black)
         color_amber = QColor(252, 215, 108)
 
         pal_blue = QPalette()
-        pal_blue.setBrush(QPalette.Highlight, QBrush(color_blue))
+        pal_blue.setBrush(QPalette.ColorRole.Highlight, QBrush(color_blue))
         self.Tracking_Video_RubberBand.setPalette(pal_blue)
 
         pal_black = QPalette()
-        pal_black.setBrush(QPalette.Highlight, QBrush(color_black))
+        pal_black.setBrush(QPalette.ColorRole.Highlight, QBrush(color_black))
         self.Censure_RubberBand.setPalette(pal_black)
 
         self._interaction = InteractionState()
@@ -283,7 +270,7 @@ class VideoWidget(QVideoWidget):
         self.parent = parent.parent()
 
         palette = self.palette()
-        palette.setColor(QPalette.Background, Qt.transparent)
+        palette.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.transparent)
         self.setPalette(palette)
 
         self.origin, self.dragPos = QPoint(), QPoint()
@@ -409,10 +396,10 @@ class VideoWidget(QVideoWidget):
         :param event:
         :return:
         '''
-        if event.key() == Qt.Key_Escape and self.isFullScreen():
+        if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
             self.setFullScreen(False)
             event.accept()
-        elif event.key() == Qt.Key_Enter and event.modifiers() & Qt.Key_Alt:
+        elif event.key() == Qt.Key.Key_Enter and event.modifiers() & Qt.Key.Key_Alt:
             self.setFullScreen(not self.isFullScreen())
             event.accept()
         else:
@@ -428,7 +415,7 @@ class VideoWidget(QVideoWidget):
         if GetImageHeight() == 0:
             return
 
-        if(not vut.IsPointOnScreen(event.x(), event.y(), self.surface)):
+        if(not vut.IsPointOnScreen(event.position().x(), event.position().y(), self.surface)):
             return
 
         if GetGCPGeoTransform() is not None and self._interaction.lineDrawer:
@@ -462,8 +449,8 @@ class VideoWidget(QVideoWidget):
             return
 
         self.UpdateSurface()
-        scr = QApplication.desktop().screenNumber(self)
-        self.setGeometry(QApplication.desktop().screenGeometry(scr))
+        screen = self.screen()
+        self.setGeometry(screen.geometry())
         self.setFullScreen(not self.isFullScreen())
         event.accept()
 
@@ -473,14 +460,14 @@ class VideoWidget(QVideoWidget):
 
     def UpdateSurface(self):
         ''' Update Video Surface only is is stopped or paused '''
-        if self.parent.playerState in (QMediaPlayer.StoppedState,
-                                       QMediaPlayer.PausedState):
+        if self.parent.playerState in (QMediaPlayer.PlaybackState.StoppedState,
+                                       QMediaPlayer.PlaybackState.PausedState):
             self.update()
         QApplication.processEvents()
 
     def sizeHint(self):
         ''' This property holds the recommended size for the widget '''
-        return self.surface.surfaceFormat().sizeHint()
+        return self.surface.sizeHint()
 
     def currentFrame(self):
         ''' Return current frame QImage '''
@@ -623,7 +610,7 @@ class VideoWidget(QVideoWidget):
             return
 
         self.painter = QPainter(self)
-        self.painter.setRenderHint(QPainter.HighQualityAntialiasing)
+        self.painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         region = event.region()
         self.painter.fillRect(region.boundingRect(), self.brush)  # Background painter color
@@ -728,24 +715,24 @@ class VideoWidget(QVideoWidget):
         @return:
         """
         if event != None:
-            self.lastMouseX = event.x()
-            self.lastMouseY = event.y()
+            self.lastMouseX = event.position().x()
+            self.lastMouseY = event.position().y()
 
         if useLast and self.lastMouseX == -1 and self.lastMouseY == -1:
             return
         else:
             #generates an event that simulates a mouse move, because even if mouse is still, video is running and mouse lat/lon must be updated.
-            event = QMouseEvent(QEvent.MouseMove, QPoint(self.lastMouseX, self.lastMouseY), Qt.NoButton, Qt.NoButton, Qt.NoModifier)        
+            event = QMouseEvent(QEvent.Type.MouseMove, QPointF(self.lastMouseX, self.lastMouseY), Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier)        
     
         # Magnifier can move on black screen for show image borders
         if self._interaction.magnifier:
             if event.buttons():
-                self.dragPos = event.pos()
+                self.dragPos = event.position().toPoint()
                 self.UpdateSurface()
 
         # check if the point is on picture (not in black borders)
-        if(not vut.IsPointOnScreen(event.x(), event.y(), self.surface)):
-            self.setCursor(QCursor(Qt.ArrowCursor))
+        if(not vut.IsPointOnScreen(event.position().x(), event.position().y(), self.surface)):
+            self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
             self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)
             return
 
@@ -755,7 +742,7 @@ class VideoWidget(QVideoWidget):
 
         # Mouse cursor drawing
         if self._interaction.pointDrawer or self._interaction.polygonDrawer or self._interaction.lineDrawer or self._interaction.measureDistance or self._interaction.measureArea or self._interaction.censure or self._interaction.objectTracking:
-            self.setCursor(QCursor(Qt.CrossCursor))
+            self.setCursor(QCursor(Qt.CursorShape.CrossCursor))
 
         # Cursor Coordinates
         if GetGCPGeoTransform() is not None:
@@ -830,12 +817,12 @@ class VideoWidget(QVideoWidget):
         # Object tracking rubberband
         if not self.Tracking_Video_RubberBand.isHidden():
             self.Tracking_Video_RubberBand.setGeometry(
-                QRect(self.origin, event.pos()).normalized())
+                QRect(self.origin, event.position().toPoint()).normalized())
 
         # Censure rubberband
         if not self.Censure_RubberBand.isHidden():
             self.Censure_RubberBand.setGeometry(
-                QRect(self.origin, event.pos()).normalized())
+                QRect(self.origin, event.position().toPoint()).normalized())
 
     def timerEvent(self, _):
         """ Time Event (Magnifier method)"""
@@ -855,15 +842,15 @@ class VideoWidget(QVideoWidget):
         #if self.parent.player.position() == 0:
         #    return
 
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.MouseButton.LeftButton:
 
             # Magnifier Glass
             if self._interaction.magnifier:
-                self.dragPos = event.pos()
+                self.dragPos = event.position().toPoint()
                 self.tapTimer.stop()
                 self.tapTimer.start(10, self)
 
-            if(not vut.IsPointOnScreen(event.x(), event.y(), self.surface)):
+            if(not vut.IsPointOnScreen(event.position().x(), event.position().y(), self.surface)):
                 return
 
             # point drawer
@@ -894,7 +881,7 @@ class VideoWidget(QVideoWidget):
 
                 AddDrawLineOnMap(self.drawLines)
 
-            self.origin = event.pos()
+            self.origin = event.position().toPoint()
             # Object Tracking Interaction
             if self._interaction.objectTracking:
                 self.Tracking_Video_RubberBand.setGeometry(
@@ -1023,6 +1010,6 @@ class VideoWidget(QVideoWidget):
         # Remove coordinates label value
         self.parent.lb_cursor_coord.setText("")
         # Change cursor
-        self.setCursor(QCursor(Qt.ArrowCursor))
+        self.setCursor(QCursor(Qt.CursorShape.ArrowCursor))
         # Reset mouse rubberband
         self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)

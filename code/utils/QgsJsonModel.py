@@ -5,7 +5,6 @@ from qgis.PyQt.QtCore import (QJsonDocument,
                               QAbstractItemModel,
                               QModelIndex,
                               Qt,
-                              QVariant,
                               QCoreApplication,
                               QJsonParseError)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
@@ -142,12 +141,12 @@ class QJsonModel(QAbstractItemModel):
 
     def data(self, index, role):
         if not index.isValid():
-            return QVariant()
+            return None
 
         item = index.internalPointer()
         col = index.column()
 
-        if role == Qt.DisplayRole:
+        if role == Qt.ItemDataRole.DisplayRole:
             if col == 0:
                 return str(item.key())
             elif col == 1:
@@ -155,16 +154,16 @@ class QJsonModel(QAbstractItemModel):
             elif col == 2:
                 return str(item.type())
 
-        return QVariant()
+        return None
 
     def headerData(self, section, orientation, role):
-        if role != Qt.DisplayRole:
-            return QVariant()
+        if role != Qt.ItemDataRole.DisplayRole:
+            return None
 
-        if orientation == Qt.Horizontal:
+        if orientation == Qt.Orientation.Horizontal:
             return self.mHeaders[section]
 
-        return QVariant()
+        return None
 
     def index(self, row, column, parent):
         if not self.hasIndex(row, column, parent):

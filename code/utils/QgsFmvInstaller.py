@@ -13,6 +13,7 @@ from subprocess import Popen, PIPE
 from urllib.request import urlretrieve, build_opener, install_opener
 import zipfile
 
+import requests
 import subprocess
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 
@@ -59,7 +60,7 @@ else:
 DemGlobal = "http://www.gisandbeers.com/RRSS/Cartografia/ETOPO1.zip"
 
 progress = QProgressBar()
-progress.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+progress.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
 opener = build_opener()
 opener.addheaders = [('User-Agent', 'Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/36.0.1941.0 Safari/537.36')]
@@ -81,7 +82,7 @@ def WindowsInstaller():
                                          QCoreApplication.translate("QgsFmvInstaller", """<b>Missing python dependency</b>"""),
                                          QCoreApplication.translate("QgsFmvInstaller", "Do you want install Lav Filters?"),
                                          icon="Information")
-        if buttonReply == QMessageBox.Yes:
+        if buttonReply == QMessageBox.StandardButton.Yes:
 
             progressMessageBar = iface.messageBar().createMessage("QGIS FMV", " Downloading LAV Filters...")
             progressMessageBar.layout().addWidget(progress)
@@ -101,7 +102,7 @@ def WindowsInstaller():
                                          QCoreApplication.translate("QgsFmvInstaller", """<b>Missing FFMPEG dependency</b>"""),
                                          QCoreApplication.translate("QgsFmvInstaller", "Do you want install FFMPEG?"),
                                          icon="Information")
-        if buttonReply == QMessageBox.Yes:
+        if buttonReply == QMessageBox.StandardButton.Yes:
             # Download FFMPEG # Prevent HTTP Error 403: Forbidden
             progressMessageBar = iface.messageBar().createMessage("QGIS FMV", " Downloading FFMPEG...")
             progressMessageBar.layout().addWidget(progress)
@@ -137,7 +138,7 @@ def WindowsInstaller():
                                  QCoreApplication.translate("QgsFmvInstaller","""<b>Dem file not exist!</b>"""),
                                  QCoreApplication.translate("QgsFmvInstaller", "Do you want download global DEM?"),
                                  icon="Information")
-        if buttonReply == QMessageBox.Yes:
+        if buttonReply == QMessageBox.StandardButton.Yes:
             progressMessageBar = iface.messageBar().createMessage("QGIS FMV", " Downloading Global DEM...")
             progressMessageBar.layout().addWidget(progress)
             iface.messageBar().pushWidget(progressMessageBar, QGis.Info)
@@ -174,7 +175,7 @@ def WindowsInstaller():
             buttonReply = qgsu.CustomMessage("QGIS FMV : " + QCoreApplication.translate("QgsFmvInstaller", "<b>Missing dependencies</b>"),
                                              QCoreApplication.translate("QgsFmvInstaller", "Do you want install missing dependencies?"),
                                              icon="Information")
-            if buttonReply == QMessageBox.Yes:
+            if buttonReply == QMessageBox.StandardButton.Yes:
                 install_pip_requirements()
                 qgsu.showUserAndLogMessage(QCoreApplication.translate("QgsFmvInstaller", "Python libraries installed correctly"))
         except ImportError:
@@ -187,7 +188,7 @@ def WindowsInstaller():
                 buttonReply = qgsu.CustomMessage("QGIS FMV : " + QCoreApplication.translate("QgsFmvInstaller", "<b>Updates available</b>"),
                                                  QCoreApplication.translate("QgsFmvInstaller", "Do you want upgrade dependencies?"),
                                                  icon="Information")
-                if buttonReply == QMessageBox.Yes:
+                if buttonReply == QMessageBox.StandardButton.Yes:
                     install_pip_requirements()
                     qgsu.showUserAndLogMessage(QCoreApplication.translate("QgsFmvInstaller", "Python libraries updated correctly"))
         except ImportError:
@@ -201,7 +202,7 @@ def get_password():
         """Return Linux user Password."""
         password, ok = QInputDialog.getText(
             None, "Enter Linux user password for install missing dependencies", "Password:",
-            QLineEdit.Password
+            QLineEdit.EchoMode.Password
         )
         return password if ok else ''
 
@@ -219,7 +220,7 @@ def LinuxInstaller():
             buttonReply = qgsu.CustomMessage("QGIS FMV : " + QCoreApplication.translate("QgsFmvInstaller", "Missing python dependencies"),
                                              QCoreApplication.translate("QgsFmvInstaller", "Do you want install missing dependencies?"),
                                              icon="Information")
-            if buttonReply == QMessageBox.Yes:
+            if buttonReply == QMessageBox.StandardButton.Yes:
                 
                 ''' Aditional dependencies'''
                 if pwd is None:
@@ -265,7 +266,7 @@ def LinuxInstaller():
                                          QCoreApplication.translate("QgsFmvInstaller", "Missing GStreamer dependency"),
                                          QCoreApplication.translate("QgsFmvInstaller", "Do you want install GStreamer?"),
                                          icon="Information")
-        if buttonReply == QMessageBox.Yes:
+        if buttonReply == QMessageBox.StandardButton.Yes:
             
             if pwd is None:
                 ret = get_password()
@@ -295,7 +296,7 @@ def LinuxInstaller():
                                          QCoreApplication.translate("QgsFmvInstaller", "Missing FFMPEG dependency"),
                                          QCoreApplication.translate("QgsFmvInstaller", "Do you want install FFMPEG?"),
                                          icon="Information")
-        if buttonReply == QMessageBox.Yes:
+        if buttonReply == QMessageBox.StandardButton.Yes:
             
             if pwd is None:
                 ret = get_password()

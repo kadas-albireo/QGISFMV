@@ -2,17 +2,20 @@
 
 # Form implementation generated from reading ui file 'ui/ui_FmvMetadata.ui'
 #
-# Created by: PyQt5 UI code generator 5.10.1
+# Originally created by: PyQt5 UI code generator 5.10.1 -- manually migrated to Qt6/PyQt6 (see MIGRATION_QT6_PYQT6.md)
 #
-# WARNING! All changes made in this file will be lost!
+# NOTE: manually migrated for Qt6/PyQt6. Do not blindly regenerate from the .ui
+# file - see MIGRATION_QT6_PYQT6.md (some .ui sources in this repo have drifted
+# from the widget structure these files actually use, e.g. widget promotions).
+# If you do regenerate, re-apply the fixes documented there.
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from qgis.PyQt import QtCore, QtGui, QtWidgets
 
 class Ui_FmvMetadata(object):
     def setupUi(self, FmvMetadata):
         FmvMetadata.setObjectName("FmvMetadata")
         FmvMetadata.resize(689, 604)
-        FmvMetadata.setLocale(QtCore.QLocale(QtCore.QLocale.English, QtCore.QLocale.UnitedStates))
+        FmvMetadata.setLocale(QtCore.QLocale(QtCore.QLocale.Language.English, QtCore.QLocale.Country.UnitedStates))
         self.dockWidgetContents = QtWidgets.QWidget()
         self.dockWidgetContents.setMinimumSize(QtCore.QSize(300, 0))
         self.dockWidgetContents.setObjectName("dockWidgetContents")
@@ -30,12 +33,12 @@ class Ui_FmvMetadata(object):
         self.menuSave.setObjectName("menuSave")
         self.verticalLayout.addWidget(self.menubarwidget)
         self.line = QtWidgets.QFrame(self.dockWidgetContents)
-        self.line.setFrameShape(QtWidgets.QFrame.HLine)
-        self.line.setFrameShadow(QtWidgets.QFrame.Sunken)
+        self.line.setFrameShape(QtWidgets.QFrame.Shape.HLine)
+        self.line.setFrameShadow(QtWidgets.QFrame.Shadow.Sunken)
         self.line.setObjectName("line")
         self.verticalLayout.addWidget(self.line)
         self.VManager = QtWidgets.QTableWidget(self.dockWidgetContents)
-        self.VManager.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.VManager.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.VManager.setStyleSheet("QHeaderView::section\n"
 "{\n"
 "spacing: 10px;\n"
@@ -55,28 +58,28 @@ class Ui_FmvMetadata(object):
 "font-weight: bold;\n"
 "color: rgb(56, 95, 107);\n"
 " }")
-        self.VManager.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.VManager.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.VManager.setAlternatingRowColors(True)
-        self.VManager.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
-        self.VManager.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectColumns)
-        self.VManager.setTextElideMode(QtCore.Qt.ElideMiddle)
+        self.VManager.setSelectionMode(QtWidgets.QAbstractItemView.SelectionMode.NoSelection)
+        self.VManager.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectColumns)
+        self.VManager.setTextElideMode(QtCore.Qt.TextElideMode.ElideMiddle)
         self.VManager.setCornerButtonEnabled(False)
         self.VManager.setObjectName("VManager")
         self.VManager.setColumnCount(3)
         self.VManager.setRowCount(0)
         item = QtWidgets.QTableWidgetItem()
         font = QtGui.QFont()
-        font.setStyleStrategy(QtGui.QFont.PreferAntialias)
+        font.setStyleStrategy(QtGui.QFont.StyleStrategy.PreferAntialias)
         item.setFont(font)
         self.VManager.setHorizontalHeaderItem(0, item)
         item = QtWidgets.QTableWidgetItem()
         font = QtGui.QFont()
-        font.setStyleStrategy(QtGui.QFont.PreferAntialias)
+        font.setStyleStrategy(QtGui.QFont.StyleStrategy.PreferAntialias)
         item.setFont(font)
         self.VManager.setHorizontalHeaderItem(1, item)
         item = QtWidgets.QTableWidgetItem()
         font = QtGui.QFont()
-        font.setStyleStrategy(QtGui.QFont.PreferAntialias)
+        font.setStyleStrategy(QtGui.QFont.StyleStrategy.PreferAntialias)
         item.setFont(font)
         self.VManager.setHorizontalHeaderItem(2, item)
         self.VManager.horizontalHeader().setVisible(True)
@@ -85,14 +88,14 @@ class Ui_FmvMetadata(object):
         self.VManager.verticalHeader().setStretchLastSection(False)
         self.verticalLayout.addWidget(self.VManager)
         FmvMetadata.setWidget(self.dockWidgetContents)
-        self.actionSave_as_PDF = QtWidgets.QAction(FmvMetadata)
+        self.actionSave_as_PDF = QtGui.QAction(FmvMetadata)
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/pdf.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/pdf.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         self.actionSave_as_PDF.setIcon(icon)
         self.actionSave_as_PDF.setObjectName("actionSave_as_PDF")
-        self.actionSave_as_CSV = QtWidgets.QAction(FmvMetadata)
+        self.actionSave_as_CSV = QtGui.QAction(FmvMetadata)
         icon1 = QtGui.QIcon()
-        icon1.addPixmap(QtGui.QPixmap(":/imgFMV/images/csv.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon1.addPixmap(QtGui.QPixmap(":/imgFMV/images/csv.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         self.actionSave_as_CSV.setIcon(icon1)
         self.actionSave_as_CSV.setObjectName("actionSave_as_CSV")
         self.menuSave.addAction(self.actionSave_as_PDF)

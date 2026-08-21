@@ -35,22 +35,22 @@ class QgsUtils(object):
     def CustomMessage(title, msg, informative="", icon="Critical"):
         ''' Custom Informative Message '''
         d = QMessageBox()
-        d.setTextFormat(Qt.RichText)
+        d.setTextFormat(Qt.TextFormat.RichText)
         d.setWindowTitle(title)
         d.setWindowIcon(QIcon(QPixmap(":/imgFMV/images/icon.png")))
         d.setText(msg)
         d.setInformativeText(informative)
         d.setIconPixmap(QgsUtils.GetIcon(icon))
-        d.addButton(QMessageBox.Yes)
-        d.addButton(QMessageBox.No)
-        d.setDefaultButton(QMessageBox.No)
+        d.addButton(QMessageBox.StandardButton.Yes)
+        d.addButton(QMessageBox.StandardButton.No)
+        d.setDefaultButton(QMessageBox.StandardButton.No)
        
         # Trick resize QMessageBox
-        horizontalSpacer = QSpacerItem(500, 0, QSizePolicy.Minimum, QSizePolicy.Expanding)
+        horizontalSpacer = QSpacerItem(500, 0, QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Expanding)
         layout = d.layout()
         layout.addItem(horizontalSpacer, layout.rowCount(), 0, 1, layout.columnCount())
         
-        ret = d.exec_()
+        ret = d.exec()
         return ret
 
     @staticmethod

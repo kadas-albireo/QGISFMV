@@ -2,11 +2,14 @@
 
 # Form implementation generated from reading ui file 'ui/ui_FmvOpenStream.ui'
 #
-# Created by: PyQt5 UI code generator 5.10.1
+# Originally created by: PyQt5 UI code generator 5.10.1 -- manually migrated to Qt6/PyQt6 (see MIGRATION_QT6_PYQT6.md)
 #
-# WARNING! All changes made in this file will be lost!
+# NOTE: manually migrated for Qt6/PyQt6. Do not blindly regenerate from the .ui
+# file - see MIGRATION_QT6_PYQT6.md (some .ui sources in this repo have drifted
+# from the widget structure these files actually use, e.g. widget promotions).
+# If you do regenerate, re-apply the fixes documented there.
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from qgis.PyQt import QtCore, QtGui, QtWidgets
 
 class Ui_FmvOpenStream(object):
     def setupUi(self, FmvOpenStream):
@@ -14,15 +17,15 @@ class Ui_FmvOpenStream(object):
         FmvOpenStream.resize(355, 83)
         FmvOpenStream.setMinimumSize(QtCore.QSize(0, 0))
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/stream.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/stream.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         FmvOpenStream.setWindowIcon(icon)
-        FmvOpenStream.setLocale(QtCore.QLocale(QtCore.QLocale.English, QtCore.QLocale.UnitedStates))
+        FmvOpenStream.setLocale(QtCore.QLocale(QtCore.QLocale.Language.English, QtCore.QLocale.Country.UnitedStates))
         self.verticalLayout = QtWidgets.QVBoxLayout(FmvOpenStream)
         self.verticalLayout.setObjectName("verticalLayout")
         self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_2.setObjectName("horizontalLayout_2")
         self.cmb_protocol = QtWidgets.QComboBox(FmvOpenStream)
-        self.cmb_protocol.setCursor(QtGui.QCursor(QtCore.Qt.IBeamCursor))
+        self.cmb_protocol.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.IBeamCursor))
         self.cmb_protocol.setObjectName("cmb_protocol")
         self.cmb_protocol.addItem("")
         self.horizontalLayout_2.addWidget(self.cmb_protocol)
@@ -31,7 +34,7 @@ class Ui_FmvOpenStream(object):
         self.ln_host.setObjectName("ln_host")
         self.horizontalLayout_2.addWidget(self.ln_host)
         self.ln_port = QtWidgets.QLineEdit(FmvOpenStream)
-        self.ln_port.setInputMethodHints(QtCore.Qt.ImhNone)
+        self.ln_port.setInputMethodHints(QtCore.Qt.InputMethodHint.ImhNone)
         self.ln_port.setText("")
         self.ln_port.setObjectName("ln_port")
         self.horizontalLayout_2.addWidget(self.ln_port)
@@ -39,7 +42,7 @@ class Ui_FmvOpenStream(object):
         self.horizontalLayout_3 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_3.setObjectName("horizontalLayout_3")
         self.btn_Open = QtWidgets.QPushButton(FmvOpenStream)
-        self.btn_Open.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self.btn_Open.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         self.btn_Open.setObjectName("btn_Open")
         self.horizontalLayout_3.addWidget(self.btn_Open)
         self.verticalLayout.addLayout(self.horizontalLayout_3)

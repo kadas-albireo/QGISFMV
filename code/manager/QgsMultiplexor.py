@@ -238,11 +238,11 @@ class Multiplexor(QDialog, Ui_VideoMultiplexer):
         self.iface.messageBar().clearWidgets()
         progressMessageBar = self.iface.messageBar().createMessage("Creating video packets...")
         progress = QProgressBar()
-        progress.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        progress.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         progressMessageBar.layout().addWidget(progress)
         self.iface.messageBar().pushWidget(progressMessageBar, QGis.Info)
 
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         QApplication.processEvents()
 
         HFOV = self.sp_hfov.value()
@@ -608,7 +608,7 @@ class Multiplexor(QDialog, Ui_VideoMultiplexer):
 
     def CreateDJICsv(self, rows_list, csv_raw):
         ''' DJI Drone: Create csv result files for each record '''
-        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         QApplication.processEvents()
 
         folder = getVideoFolder(self.video_file)

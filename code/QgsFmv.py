@@ -21,21 +21,28 @@
  *                                                                         *
  ***************************************************************************/
 """
-from kadas.kadasgui import (KadasPluginInterface, KadasBottomBar)
 import os.path
+
 from qgis.PyQt.QtCore import (QSettings,
                               QCoreApplication,
                               QTranslator,
                               qVersion,
                               QThread, Qt, QUrl)
-from qgis.PyQt.QtGui import QIcon, QDesktopServices
-from qgis.PyQt.QtWidgets import QAction, QHBoxLayout, QSizePolicy, QTabWidget
+from qgis.PyQt.QtGui import QIcon, QDesktopServices, QAction
+from qgis.PyQt.QtWidgets import QHBoxLayout, QSizePolicy, QTabWidget
 from QGIS_FMV.manager.QgsManager import FmvManager
 from QGIS_FMV.utils.QgsFmvLog import log
 from qgis.PyQt.QtCore import Qt
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.core import QgsApplication
+from kadas.kadasgui import *
 from QGIS_FMV.utils.KadasFmvLayers import RemoveAllDrawings
+
+try:
+    from pydevd import *
+except ImportError:
+    None
+
 
 class Fmv:
     """ Main Class """
@@ -139,7 +146,7 @@ class Fmv:
                 self.run_once = True
                 self.bottomBar = KadasBottomBar( self.iface.mapCanvas() )
                 self.bottomBar.setLayout( QHBoxLayout() )
-                self.bottomBar.setSizePolicy( QSizePolicy.Expanding, QSizePolicy.Preferred )
+                self.bottomBar.setSizePolicy( QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred )
                 self._FMVManager = FmvManager(self.iface, self.actionFMV, self.actionShowHide)
                 self.bottomBar.layout().addWidget( self._FMVManager )
                 self.bottomBar.adjustSize()
@@ -169,4 +176,3 @@ class Fmv:
             self._FMVManager.hide()
         if self.bottomBar:
             self.bottomBar.hide()
-

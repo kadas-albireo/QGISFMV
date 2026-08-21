@@ -32,7 +32,7 @@ class VideoFilters():
         @param image:
         @return: QImage
         '''
-        return image.convertToFormat(QImage.Format_Grayscale8)
+        return image.convertToFormat(QImage.Format.Format_Grayscale8)
 
     @staticmethod
     def MirrredFilter(image):
@@ -50,7 +50,7 @@ class VideoFilters():
         @param image:
         @return: QImage
         '''
-        return image.convertToFormat(QImage.Format_Mono)
+        return image.convertToFormat(QImage.Format.Format_Mono)
 
     @staticmethod
     def EdgeFilter(image, sigma=0.33):

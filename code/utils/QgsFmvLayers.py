@@ -7,7 +7,7 @@ from qgis.PyQt.QtCore import QCoreApplication, QPointF
 
 from configparser import ConfigParser
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
-from qgis.PyQt.QtCore import QVariant, QSettings
+from qgis.PyQt.QtCore import QMetaType, QSettings
 from qgis.core import (QgsPalLayerSettings,
                        QgsTextFormat,
                        QgsTextBufferSettings,
@@ -68,10 +68,10 @@ _layerreg = QgsProject.instance()
 crtSensorSrc = crtSensorSrc2 = crtPltTailNum = 'DEFAULT'
 
 TYPE_MAP = {
-    str: QVariant.String,
-    float: QVariant.Double,
-    int: QVariant.Int,
-    bool: QVariant.Bool
+    str: QMetaType.Type.QString,
+    float: QMetaType.Type.Double,
+    int: QMetaType.Type.Int,
+    bool: QMetaType.Type.Bool
 }
 
 Point = 'Point'
@@ -1023,7 +1023,7 @@ def _toQgsField(f):
     ''' Create QgsFiel '''
     if isinstance(f, QgsField):
         return f
-    return QgsField(f[0], TYPE_MAP.get(f[1], QVariant.String))
+    return QgsField(f[0], TYPE_MAP.get(f[1], QMetaType.Type.QString))
 
 
 def newPointsLayer(filename, fields, crs, name=None, geometryType=Point, encoding=encoding):
