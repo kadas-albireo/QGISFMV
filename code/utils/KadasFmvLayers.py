@@ -16,6 +16,8 @@ from qgis.core import (Qgis,
                        QgsField,
                        QgsFields,
                        QgsFillSymbol,
+                       QgsFontMarkerSymbolLayer,
+                       QgsSimpleMarkerSymbolLayer,
                        QgsGeometry,
                        QgsLayerTreeLayer,
                        QgsLineString,
@@ -25,6 +27,7 @@ from qgis.core import (Qgis,
                        QgsPoint,
                        QgsPointXY,
                        QgsProject,
+                       QgsProperty,
                        QgsRenderContext,
                        QgsSingleSymbolRenderer,
                        QgsSvgMarkerSymbolLayer,
@@ -132,8 +135,34 @@ rbPointsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
 # rbPointsEle.setIcon(QgsRubberBand.IconType.ICON_CROSS )
 rbPointsEle.setIconSize(30)
 rbPointsEle.setFillColor(QColor("green"))
+
+pointSymbol = QgsMarkerSymbol()
+pointSymbol.deleteSymbolLayer(0)  # remove default layer
+
+simple_marker = QgsSimpleMarkerSymbolLayer()
+simple_marker.setColor(QColor('red'))
+simple_marker.setStrokeColor(QColor('red'))
+pointSymbol.appendSymbolLayer(simple_marker)
+
+font_marker = QgsFontMarkerSymbolLayer()
+font_marker.setFontFamily('Tahoma')
+font_marker.setSize(4.2)
+font_marker.setOffset(QPointF(0.6, -1.6))
+font_marker.setVerticalAnchorPoint(Qgis.VerticalAnchorPoint.Bottom)
+font_marker.setHorizontalAnchorPoint(Qgis.HorizontalAnchorPoint.Left)
+font_marker.setDataDefinedProperty(
+    QgsFontMarkerSymbolLayer.PropertyCharacter,
+    # QgsProperty.fromExpression("'to_string( @geometry_part_num )')
+    QgsProperty.fromExpression("'RCC'")
+)
+pointSymbol.appendSymbolLayer(font_marker)
+
+rbPointsEle.setSymbol(pointSymbol)
+
 rbPointsEle.setZValue(100)
 
+
+rbPointsElement = []
 
 rbLinesEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Line)
 SetDefaultLineStyle(rbLinesEle)
@@ -230,6 +259,10 @@ def RemoveAllDrawings():
     # for ele in pointsEle:
     #     KadasMapCanvasItemManager.removeItem(ele)
     rbPointsEle.reset(Qgis.GeometryType.Point)
+    for ele in rbPointsElement:
+        ele.reset(Qgis.GeometryType.Point)
+    rbPointsElement.clear()
+
 
     # for ele in polygonsEle:
     #     KadasMapCanvasItemManager.removeItem(ele)
@@ -295,7 +328,27 @@ def UpdateDrawPointOnMap():
     pointsEleGeom = QgsGeometry.fromMultiPointXY(pointsEle)
     # pointsEleGeom.transform(ct)
 
-    rbPointsEle.setToGeometry(pointsEleGeom,  QgsCoordinateReferenceSystem("EPSG:4326"))
+    # rbPointsEle.setToGeometry(pointsEleGeom,  QgsCoordinateReferenceSystem("EPSG:4326"))
+
+    for ele in rbPointsElement:
+        ele.reset(Qgis.GeometryType.Point)
+    rbPointsElement.clear()
+
+    # rubberbandPoints = rbPointsEle.asGeometry().asMultiPoint()
+    for i, point in enumerate(pointsEle):
+        pointRubberBand = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
+        pointRubberBand.setToGeometry(QgsGeometry.fromPointXY(point), QgsCoordinateReferenceSystem("EPSG:4326"))
+
+        c = pointSymbol.clone()
+        c.symbolLayer(1).setDataDefinedProperty(
+            QgsFontMarkerSymbolLayer.PropertyCharacter,
+            QgsProperty.fromExpression(f"'{i + 1}'")
+        )
+
+        pointRubberBand.setSymbol(c)
+        pointRubberBand.setZValue(100)
+
+        rbPointsElement.append(pointRubberBand)
     iface.mapCanvas().refresh()
 
 def UpdateDrawLineOnMap():
