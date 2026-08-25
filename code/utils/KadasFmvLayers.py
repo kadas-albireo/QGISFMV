@@ -563,8 +563,7 @@ def UpdatePlatformData(packet, ele):
     
         if platformRubberBand is None:
             platformRubberBand = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
-            platformRubberBand.setIcon(QgsRubberBand.IconType.ICON_SVG)
-            platformRubberBand.setSvgIcon(":/imgFMV/images/platforms/platform_default.svg", QPoint(-25,-25))
+            SetDefaultPlatformStyle(platformRubberBand, platformTailNumber)
             platformRubberBand.setZValue(100)
         
         if platformTailNumber != crtPltTailNum:
@@ -768,7 +767,7 @@ def SetDefaultPlatformStyle(mapRubberBand:QgsRubberBand, platform='DEFAULT'):
     ''' Platform Symbol '''
     style = S.getPlatform(platform)    
     mapRubberBand.setIcon(QgsRubberBand.IconType.ICON_SVG)
-    mapRubberBand.setSvgIcon(style['NAME'], QPoint(0,0))
+    mapRubberBand.setSvgIcon(style['NAME'], QPoint(-44,- 67//2))
     mapRubberBand.setIconSize(int(style['SIZE']))
     return
 
