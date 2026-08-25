@@ -10,32 +10,21 @@ from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.PyQt.QtCore import QVariant, QSettings
 from qgis.core import (Qgis,
                        QgsCoordinateReferenceSystem,
-                       QgsCoordinateTransform,
                        QgsDistanceArea,
                        QgsFeature,
                        QgsField,
                        QgsFields,
-                       QgsFillSymbol,
                        QgsFontMarkerSymbolLayer,
                        QgsSimpleMarkerSymbolLayer,
                        QgsGeometry,
                        QgsLayerTreeLayer,
-                       QgsLineString,
-                       QgsLineSymbol,
                        QgsMarkerSymbol,
-                       QgsPalLayerSettings,
                        QgsPoint,
                        QgsPointXY,
                        QgsProject,
                        QgsProperty,
-                       QgsRenderContext,
-                       QgsSingleSymbolRenderer,
-                       QgsSvgMarkerSymbolLayer,
-                       QgsTextBufferSettings,
-                       QgsTextFormat,
                        QgsVectorFileWriter,
                        QgsVectorLayer,
-                       QgsVectorLayerSimpleLabeling,
                        )
 from qgis.gui import QgsRubberBand
 
@@ -73,25 +62,16 @@ LineZ = 'LineStringZ'
 Line = 'LineString'
 Polygon = 'Polygon'
 
-platformMarker=''
 platformRubberBand = None
-frameCenterMarker=''
 frameCenterRubberBand = None
-frameAxisMarker=''
 rbFrameAxisMarker = None
-footprintMarker=''
 footprintRubberBand = None
-trajectoryMarker=''
 rbTrajectoryMarker = None
 lastTrajectoryEle=''
 linesEle=[]
 pointsEle=[]
 pointsLblEle=[]
 polygonsEle=[]
-beamMarkerUR=''
-beamMarkerUL=''
-beamMarkerLL=''
-beamMarkerLR=''
 rbBeamMarkerUR = None
 rbBeamMarkerUL = None
 rbBeamMarkerLL = None
@@ -100,9 +80,6 @@ rbBeamMarkerLR = None
 def SetDefaultLineStyle(lineRubberband:QgsRubberBand):
     ''' Line Symbol '''
     style = S.getDrawingLine()
-    # mPen = QPen()
-    # mPen.setColor(style['COLOR'])
-    # mPen.setWidth(style['WIDTH'])
     lineRubberband.setStrokeColor(QColor(style['COLOR']))
     lineRubberband.setWidth(int(style['WIDTH']))
     
@@ -111,11 +88,6 @@ def SetDefaultPolygonStyle(polygonRubberband:QgsRubberBand):
     ''' Polygon Symbol '''
     style = S.getDrawingPolygon()
         
-    # mPen = QPen()
-    # mPen.setColor(QColor(style['OUTLINE_COLOR']))
-    # mPen.setWidth(int(style['OUTLINE_WIDTH']))
-    # mapItem.setOutline( mPen )
-
     polygonRubberband.setStrokeColor(QColor(style['OUTLINE_COLOR']))
     polygonRubberband.setWidth(int(style['OUTLINE_WIDTH']))
     
@@ -193,20 +165,18 @@ def AddDrawLineOnMap(drawLines):
     UpdateDrawLineOnMap()
 
 def GetMapItems():
-    global platformMarker, frameCenterMarker, footprintMarker
     global platformRubberBand, frameCenterRubberBand, footprintRubberBand
     return {
         "platform": platformRubberBand,
         "framecenter": frameCenterRubberBand,
         "footprint": footprintRubberBand
-        # "footprint": footprintMarker
 
     }
     
 
 def RemoveAllDrawings():
 
-    global crtSensorSrc, crtPltTailNum, platformMarker, frameCenterMarker, trajectoryMarker, frameAxisMarker, footprintMarker, beamMarkerUR, beamMarkerUL, beamMarkerLL, beamMarkerLR, linesEle, pointsEle, pointsLblEle, polygonsEle, lastTrajectoryEle
+    global crtSensorSrc, crtPltTailNum, linesEle, pointsEle, pointsLblEle, polygonsEle, lastTrajectoryEle
     global footprintRubberBand, frameCenterRubberBand, platformRubberBand
     global rbBeamMarkerUR, rbBeamMarkerUL, rbBeamMarkerLL, rbBeamMarkerLR
     global rbTrajectoryMarker, rbFrameAxisMarker
@@ -261,7 +231,7 @@ def RemoveAllDrawings():
         rbFrameAxisMarker.reset(Qgis.GeometryType.Line)
         rbFrameAxisMarker = None
 
-    crtSensorSrc, crtPltTailNum, lastTrajectoryEle, platformMarker, frameCenterMarker, trajectoryMarker, frameAxisMarker, footprintMarker, beamMarkerUR, beamMarkerUL, beamMarkerLL, beamMarkerLR = 'DEFAULT', 'DEFAULT', '', '', '', '', '', '', '', '', '', ''
+    crtSensorSrc, crtPltTailNum, lastTrajectoryEle = 'DEFAULT', 'DEFAULT', ''
     linesEle, pointsEle, pointsLblEle, polygonsEle = [], [], [], []
 
 
@@ -414,7 +384,7 @@ def SetcrtPltTailNum():
 
 def UpdateFootPrintData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, ele):
     ''' Update Footprint Values '''
-    global crtSensorSrc, groupName, footprintMarker
+    global crtSensorSrc, groupName
     global footprintRubberBand
     imgSS = packet.ImageSourceSensor
     
@@ -428,7 +398,6 @@ def UpdateFootPrintData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cor
             SetDefaultFootprintStyle(footprintRubberBand, imgSS)
             crtSensorSrc = imgSS
             
-        # footprintMarker.clear()
         footprintRubberBand.reset(Qgis.GeometryType.Polygon)
         geom = QgsGeometry.fromPolygonXY([[
                     QgsPointXY(cornerPointUL[1],
@@ -447,7 +416,6 @@ def UpdateFootPrintData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cor
 
 
 def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, ele):
-    global beamMarkerUR, beamMarkerUL, beamMarkerLL, beamMarkerLR
     global rbBeamMarkerUR, rbBeamMarkerUL, rbBeamMarkerLL, rbBeamMarkerLR
     
     ''' Update Beams Values '''
@@ -499,7 +467,7 @@ def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerP
         
 
 def UpdateTrajectoryData(packet, ele):
-    global trajectoryMarker, lastTrajectoryEle
+    global lastTrajectoryEle
     global rbTrajectoryMarker
     ''' Update Trajectory Values '''
     lat = packet.SensorLatitude
@@ -525,7 +493,7 @@ def UpdateTrajectoryData(packet, ele):
 #def UpdateFrameAxisData(packet, ele):
 def UpdateFrameAxisData(imgSS, sensor, framecenter, ele):
     ''' Update Frame Axis Values '''
-    global crtSensorSrc2, groupName, frameAxisMarker
+    global crtSensorSrc2, groupName
     global rbFrameAxisMarker
 
     lat = sensor[0]
@@ -551,7 +519,6 @@ def UpdateFrameAxisData(imgSS, sensor, framecenter, ele):
 
 
 def UpdateFrameCenterData(pt, ele):
-    global frameCenterMarker
     global frameCenterRubberBand
     ''' Update FrameCenter Values '''
     lat = pt[0]
@@ -577,7 +544,7 @@ def UpdateFrameCenterData(pt, ele):
 def UpdatePlatformData(packet, ele):
     
     ''' Update PlatForm Values '''
-    global crtPltTailNum, groupName, platformMarker
+    global crtPltTailNum, groupName
     global platformRubberBand
 
     lat = packet.SensorLatitude
