@@ -127,17 +127,13 @@ def SetDefaultPolygonStyle(polygonRubberband:QgsRubberBand):
     polygonRubberband.setFillColor(QColor.fromRgba(c))
 
 
-rbPointsEle = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
-rbPointsEle.setIconSize(30)
-rbPointsEle.setFillColor(QColor("green"))
-
-pointSymbol = QgsMarkerSymbol()
-pointSymbol.deleteSymbolLayer(0)  # remove default layer
+templatePointSymbol = QgsMarkerSymbol()
+templatePointSymbol.deleteSymbolLayer(0)  # remove default layer
 
 simple_marker = QgsSimpleMarkerSymbolLayer()
 simple_marker.setColor(QColor('red'))
 simple_marker.setStrokeColor(QColor('red'))
-pointSymbol.appendSymbolLayer(simple_marker)
+templatePointSymbol.appendSymbolLayer(simple_marker)
 
 font_marker = QgsFontMarkerSymbolLayer()
 font_marker.setFontFamily('Tahoma')
@@ -147,14 +143,10 @@ font_marker.setVerticalAnchorPoint(Qgis.VerticalAnchorPoint.Bottom)
 font_marker.setHorizontalAnchorPoint(Qgis.HorizontalAnchorPoint.Left)
 font_marker.setDataDefinedProperty(
     QgsFontMarkerSymbolLayer.PropertyCharacter,
-    # QgsProperty.fromExpression("'to_string( @geometry_part_num )')
-    QgsProperty.fromExpression("'RCC'")
+    QgsProperty.fromExpression("'placeholder will be replaced with number'")
 )
-pointSymbol.appendSymbolLayer(font_marker)
+templatePointSymbol.appendSymbolLayer(font_marker)
 
-rbPointsEle.setSymbol(pointSymbol)
-
-rbPointsEle.setZValue(100)
 
 
 rbPointsElement = []
@@ -222,7 +214,6 @@ def RemoveAllDrawings():
     
     rbLinesEle.reset(Qgis.GeometryType.Line)
     
-    rbPointsEle.reset(Qgis.GeometryType.Point)
     for ele in rbPointsElement:
         ele.reset(Qgis.GeometryType.Point)
     rbPointsElement.clear()
@@ -288,7 +279,7 @@ def UpdateDrawPointOnMap():
         pointRubberBand = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
         pointRubberBand.setToGeometry(QgsGeometry.fromPointXY(point), QgsCoordinateReferenceSystem("EPSG:4326"))
 
-        c = pointSymbol.clone()
+        c = templatePointSymbol.clone()
         c.symbolLayer(1).setDataDefinedProperty(
             QgsFontMarkerSymbolLayer.PropertyCharacter,
             QgsProperty.fromExpression(f"'{i + 1}'")
@@ -344,8 +335,10 @@ def RemoveLastDrawPointOnMap():
 def RemoveAllDrawPointOnMap():
     ''' Remove all features on Point Layer '''
     global pointsEle, pointsLblEle
-    
-    rbPointsEle.reset(Qgis.GeometryType.Point)
+
+    for ele in rbPointsElement:
+        ele.reset(Qgis.GeometryType.Point)
+    rbPointsElement.clear()
 
     
     pointsEle = []
