@@ -417,6 +417,23 @@ def UpdateFootPrintData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cor
     return
 
 
+def HideFootPrintData():
+    ''' Clear the footprint without dropping the rubber band. '''
+    global footprintRubberBand
+
+    if footprintRubberBand is not None:
+        footprintRubberBand.reset(Qgis.GeometryType.Polygon)
+
+
+def HideBeamsData():
+    ''' Clear the four beams without dropping the rubber bands. '''
+    global rbBeamMarkerUR, rbBeamMarkerUL, rbBeamMarkerLL, rbBeamMarkerLR
+
+    for beam in (rbBeamMarkerUL, rbBeamMarkerUR, rbBeamMarkerLR, rbBeamMarkerLL):
+        if beam is not None:
+            beam.reset(Qgis.GeometryType.Line)
+
+
 def UpdateBeamsData(packet, cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, ele):
     global rbBeamMarkerUR, rbBeamMarkerUL, rbBeamMarkerLL, rbBeamMarkerLR
     

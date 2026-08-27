@@ -51,6 +51,7 @@ from QGIS_FMV.utils.QgsFmvUtils import (callBackMetadataThread,
                                         askForFiles,
                                         askForFolder,
                                         setCenterMode,
+                                        GetGCPGeoTransform,
                                         GetGeotransform_affine)
 from QGIS_FMV.utils.QgsJsonModel import QJsonModel
 from QGIS_FMV.utils.QgsPlot import CreatePlotsBitrate, ShowPlot
@@ -94,6 +95,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.currentInfo = 0.0
         self.data = None
         self.staticDraw = False
+        self._drawingEnabled = True
         self.playbackRateSlow = 0.7
         self.closing = False
         # Create Draw Toolbar
@@ -356,6 +358,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             #try:
             #Exit when the first correct packet has been drawn successfully.
             res = UpdateLayers(packet, parent=self, mosaic=self.createingMosaic, group=self.fileName)
+            self.setDrawingEnabled(GetGCPGeoTransform() is not None)
             if res:
                 #qgsu.showUserAndLogMessage("", "Updating layer for Precision Time Stamp:"+ str(self.data[2]))
                 #for key, value in self.data.items():
@@ -898,6 +901,37 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.videoWidget.UpdateSurface()
         return
 
+    def setDrawingEnabled(self, enabled):
+        ''' Enable or disable the tools that need map coordinates.
+            They all rely on the GCP geotransform, which is dropped when the
+            sensor looks too close to the horizon.
+        '''
+        if enabled == self._drawingEnabled:
+            return
+        self._drawingEnabled = enabled
+
+        actions = (self.actionDraw_Pinpoint,
+                   self.actionDraw_Line,
+                   self.actionDraw_Polygon,
+                   self.actionMeasureDistance,
+                   self.actionMeasureArea)
+
+        if not enabled:
+            for action in actions:
+                action.setChecked(False)
+            # setChecked() does not emit triggered(), so the interaction
+            # flags have to be cleared explicitly
+            self.videoWidget.RestoreDrawer()
+            self.videoWidget.UpdateSurface()
+
+        for action in actions:
+            action.setEnabled(enabled)
+
+        self.toolBtn_DPoint.setEnabled(enabled)
+        self.toolBtn_DLine.setEnabled(enabled)
+        self.toolBtn_DPolygon.setEnabled(enabled)
+        self.toolBtn_Measure.setEnabled(enabled)
+
     def UncheckUtils(self, sender, value):
         ''' Uncheck Utils Video
         @type value: bool
@@ -948,18 +982,20 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
     def isMuted(self):
         ''' Is muted video property'''
-        return self.playerMuted
+        return self.audioOutput.isMuted()
 
     def setMuted(self):
         ''' Muted video '''
-        if self.player.isMuted():
+        # in Qt6 mute and volume belong to QAudioOutput, not to QMediaPlayer
+        if self.audioOutput.isMuted():
             self.btn_volume.setIcon(QIcon(":/imgFMV/images/volume_up.png"))
-            self.player.setMuted(False)
+            self.audioOutput.setMuted(False)
             self.volumeSlider.setEnabled(True)
         else:
             self.btn_volume.setIcon(QIcon(":/imgFMV/images/volume_off.png"))
-            self.player.setMuted(True)
+            self.audioOutput.setMuted(True)
             self.volumeSlider.setEnabled(False)
+        self.playerMuted = self.audioOutput.isMuted()
         return
 
     def stop(self):
@@ -982,7 +1018,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type volume: qreal
         @param volume: QSlider value
         '''
-        self.player.audioOutput.setVolume(volume / 100)
+        self.audioOutput.setVolume(volume / 100)
         self.showVolumeTip(None)
         if 0 < volume <= 30:
             self.btn_volume.setIcon(QIcon(":/imgFMV/images/volume_30.png"))

@@ -37,6 +37,8 @@ from QGIS_FMV.geo import sphere
 from QGIS_FMV.klvdata.element import UnknownElement
 from QGIS_FMV.klvdata.streamparser import StreamParser
 from QGIS_FMV.utils.KadasFmvLayers import (addLayerNoCrsDialog,
+                                         HideFootPrintData,
+                                         HideBeamsData,
                                          ExpandLayer,
                                          UpdateFootPrintData,
                                          UpdateTrajectoryData,
@@ -1175,7 +1177,7 @@ def CornerEstimationWithOffsets(packet):
 
 def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, FOV=None, others=None):
     ''' Corner estimation without Offsets '''
-    global geotransform
+    global geotransform, geotransform_affine
         
     try:
         if packet is not None:
@@ -1303,7 +1305,9 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
             geotransform = None
             return True
         
-        if hasElevationModel() and value8 > max_vert_angle:
+        qgsu.showUserAndLogMessage("", "value8: {}".format(value8), onlyLog=True)
+        
+        if hasElevationModel() and value8 < max_vert_angle:
             cornerPointUL = GetLine3DIntersectionWithDEM(
                 GetSensor(), cornerPointUL)
             cornerPointUR = GetLine3DIntersectionWithDEM(
@@ -1319,16 +1323,24 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
         if sensor is not None:
             return cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL
         
-        
-        UpdateFootPrintData(packet,
-                        cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, hasElevationModel())
+        if value8 < max_vert_angle:
+            UpdateFootPrintData(packet,
+                            cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, hasElevationModel())
 
-        UpdateBeamsData(packet, cornerPointUL, cornerPointUR,
-                    cornerPointLR, cornerPointLL, hasElevationModel())
+            UpdateBeamsData(packet, cornerPointUL, cornerPointUR,
+                        cornerPointLR, cornerPointLL, hasElevationModel())
 
-        SetGCPsToGeoTransform(cornerPointUL, cornerPointUR,
-                              cornerPointLR, cornerPointLL,
-                              frameCenterPoint[1], frameCenterPoint[0], hasElevationModel())
+            SetGCPsToGeoTransform(cornerPointUL, cornerPointUR,
+                                  cornerPointLR, cornerPointLL,
+                                  frameCenterPoint[1], frameCenterPoint[0], hasElevationModel())
+        else:
+            # too close to the horizon: the corner estimation diverges, so the
+            # homography built from it is meaningless. Dropping it is what
+            # switches off the cursor coordinates and the drawing tools.
+            HideFootPrintData()
+            HideBeamsData()
+            geotransform = None
+            geotransform_affine = None
 
     except Exception as e:
         qgsu.showUserAndLogMessage(QCoreApplication.translate(
