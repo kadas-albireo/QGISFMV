@@ -35,6 +35,7 @@ from osgeo import gdal, osr
 from QGIS_FMV.geo import sphere
 from QGIS_FMV.klvdata.element import UnknownElement
 from QGIS_FMV.klvdata.streamparser import StreamParser
+from QGIS_FMV.klvdata.universalset import isFlatUniversalStream
 from QGIS_FMV.utils.KadasFmvLayers import (addLayerNoCrsDialog,
                                          HideFootPrintData,
                                          HideBeamsData,
@@ -419,6 +420,7 @@ class callBackMetadataThread(threading.Thread):
         self.p = _spawn(self.cmds)
         # print (self.cmds)
         self.stdout, _ = self.p.communicate()
+        qgsu.showUserAndLogMessage("", "callBackMetadataThread run: stdout:" + str(self.stdout), onlyLog=True)  
         # print (self.stdout)
         # print (_)
         
@@ -500,7 +502,11 @@ def getKlvStreamIndex(videoPath, islocal=False):
                 continue
             else:
                 #look if stream has valid klv data
-                if b'\x06\x0e+4\x02\x0b\x01\x01\x0e\x01\x03\x01\x01\x00\x00\x00' in stdout_data or b'\x06\x0e+4\x02\x01\x01\x01\x0e\x01\x01\x02\x01\x01\x00\x00' in stdout_data:
+                if (b'\x06\x0e+4\x02\x0b\x01\x01\x0e\x01\x03\x01\x01\x00\x00\x00' in stdout_data
+                        or b'\x06\x0e+4\x02\x01\x01\x01\x0e\x01\x01\x02\x01\x01\x00\x00' in stdout_data
+                        # legacy pre 0601 streams carry no wrapping set key to
+                        # look for, so they are recognised on their layout
+                        or isFlatUniversalStream(stdout_data, StreamParser.parsers)):
                     return i
                 else:
                     qgsu.showUserAndLogMessage("", "skipping stream " + str(i) + " not a klv stream.", onlyLog=True)
