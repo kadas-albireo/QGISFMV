@@ -119,6 +119,7 @@ class Ui_PlayerWindow(object):
         self.verticalLayout.addLayout(self.horizontalLayout_2b)        
         
         self.groupBox.setObjectName("groupBox")
+        self.groupBox.setStyleSheet("QGroupBox { border: 1px solid rgb(211, 211, 211); border-radius: 3px; }")
         self.horizontalLayout_3 = QtWidgets.QHBoxLayout(self.groupBox)
         self.horizontalLayout_3.setObjectName("horizontalLayout_3")
         self.btn_Color = QtWidgets.QPushButton(self.groupBox)

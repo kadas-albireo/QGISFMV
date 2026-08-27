@@ -9,12 +9,14 @@ from qgis.PyQt.QtWidgets import (QDockWidget,
                                  QTableWidgetItem,
                                  QMenu,
                                  QProgressBar,
+                                 QStyle,
+                                 QStyledItemDelegate,
                                  QVBoxLayout,
                                  QWidget)
 import qgis.utils
 from qgis.core import Qgis
 
-from qgis.PyQt.QtGui import QColor
+from qgis.PyQt.QtGui import QColor, QBrush
 
 from QGIS_FMV.player.QgsFmvDrawToolBar import DrawToolBar as draw
 from QGIS_FMV.converter.ffmpeg import FFMpeg
@@ -46,6 +48,40 @@ except ImportError:
 s = QSettings()
 parser = ConfigParser()
 parser.read(os.path.join(dirname(dirname(abspath(__file__))), 'settings.ini'))
+
+
+def pluginVersion():
+    ''' Plugin version, read from metadata.txt. '''
+    metadata = ConfigParser(interpolation=None)
+    try:
+        metadata.read(os.path.join(dirname(dirname(abspath(__file__))), 'metadata.txt'),
+                      encoding='utf-8')
+        return metadata.get('general', 'version', fallback='')
+    except Exception:
+        return ''
+
+
+class RowHoverDelegate(QStyledItemDelegate):
+    ''' Paints the whole row under the mouse with a light gray background. '''
+
+    def __init__(self, parent=None, color=QColor(235, 235, 235)):
+        super().__init__(parent)
+        self._row = -1
+        self._brush = QBrush(color)
+
+    def hoveredRow(self):
+        return self._row
+
+    def setHoveredRow(self, row):
+        self._row = row
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # drop the per cell hover drawn by the native style: the row
+        # highlight below replaces it
+        option.state &= ~QStyle.StateFlag.State_MouseOver
+        if index.row() == self._row and not (option.state & QStyle.StateFlag.State_Selected):
+            option.backgroundBrush = self._brush
 
 
 class QMediaPlaylist:
@@ -132,6 +168,13 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.playlist = QMediaPlaylist()
         self.VManager.viewport().installEventFilter(self)
 
+        self.versionLabel.setText("v " + pluginVersion())
+
+        self.rowHoverDelegate = RowHoverDelegate(self.VManager)
+        self.VManager.setItemDelegate(self.rowHoverDelegate)
+        self.VManager.setMouseTracking(True)
+        self.VManager.viewport().setMouseTracking(True)
+
         # Context Menu
         self.VManager.customContextMenuRequested.connect(self.__context_menu)
         self.removeAct = QAction(QIcon(":/imgFMV/images/mActionDeleteSelected.svg"),
@@ -175,8 +218,20 @@ class FmvManager(QWidget, Ui_ManagerWindow):
                     self.AddFileRowToManager(name, filename, load_id)
                                         
     
+    def setHoveredRow(self, row):
+        ''' Repaint only when the hovered row actually changes. '''
+        if row != self.rowHoverDelegate.hoveredRow():
+            self.rowHoverDelegate.setHoveredRow(row)
+            self.VManager.viewport().update()
+
     def eventFilter(self, source, event):
         ''' Event Filter '''
+        if source is self.VManager.viewport():
+            if event.type() == QEvent.Type.MouseMove:
+                index = self.VManager.indexAt(event.position().toPoint())
+                self.setHoveredRow(index.row() if index.isValid() else -1)
+            elif event.type() == QEvent.Type.Leave:
+                self.setHoveredRow(-1)
         if (event.type() == QEvent.Type.MouseButtonPress and source is self.VManager.viewport() and self.VManager.itemAt(event.position().toPoint()) is None):
             self.VManager.clearSelection()
         return QDockWidget.eventFilter(self, source, event)
