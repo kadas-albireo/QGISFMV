@@ -3,7 +3,7 @@ import os
 from os.path import dirname, abspath
 from qgis.PyQt.QtGui import QColor, QFont, QPolygonF, QPen, QPainter, QBrush, qRgba
 from qgis.PyQt.QtWidgets import QApplication
-from qgis.PyQt.QtCore import QCoreApplication, QPointF, Qt, QPoint
+from qgis.PyQt.QtCore import QCoreApplication, QPointF, Qt
 
 from configparser import ConfigParser
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
@@ -31,6 +31,7 @@ from qgis.gui import QgsRubberBand
 
 from qgis.utils import iface
 from QGIS_FMV.utils.QgsFmvStyles import FmvLayerStyles as S
+from QGIS_FMV.utils.QgsFmvCanvasItems import FmvSvgMarkerItem
 from itertools import groupby
 
 try:
@@ -63,7 +64,7 @@ LineZ = 'LineStringZ'
 Line = 'LineString'
 Polygon = 'Polygon'
 
-platformRubberBand = None
+platformMarker = None
 frameCenterRubberBand = None
 rbFrameAxisMarker = None
 footprintRubberBand = None
@@ -166,9 +167,9 @@ def AddDrawLineOnMap(drawLines):
     UpdateDrawLineOnMap()
 
 def GetMapItems():
-    global platformRubberBand, frameCenterRubberBand, footprintRubberBand
+    global platformMarker, frameCenterRubberBand, footprintRubberBand
     return {
-        "platform": platformRubberBand,
+        "platform": platformMarker,
         "framecenter": frameCenterRubberBand,
         "footprint": footprintRubberBand
 
@@ -178,7 +179,7 @@ def GetMapItems():
 def RemoveAllDrawings():
 
     global crtSensorSrc, crtPltTailNum, linesEle, pointsEle, pointsLblEle, polygonsEle, lastTrajectoryEle
-    global footprintRubberBand, frameCenterRubberBand, platformRubberBand
+    global footprintRubberBand, frameCenterRubberBand, platformMarker
     global rbBeamMarkerUR, rbBeamMarkerUL, rbBeamMarkerLL, rbBeamMarkerLR
     global rbTrajectoryMarker, rbFrameAxisMarker
 
@@ -201,9 +202,9 @@ def RemoveAllDrawings():
         frameCenterRubberBand.reset(Qgis.GeometryType.Point)
         frameCenterRubberBand = None
 
-    if platformRubberBand is not None:
-        platformRubberBand.reset(Qgis.GeometryType.Point)
-        platformRubberBand = None
+    if platformMarker is not None:
+        platformMarker.reset()
+        platformMarker = None
 
     if rbBeamMarkerUR is not None:
         rbBeamMarkerUR.reset(Qgis.GeometryType.Line)        
@@ -546,7 +547,7 @@ def UpdatePlatformData(packet, ele):
     
     ''' Update PlatForm Values '''
     global crtPltTailNum, groupName
-    global platformRubberBand
+    global platformMarker
 
     lat = packet.SensorLatitude
     lon = packet.SensorLongitude
@@ -556,23 +557,23 @@ def UpdatePlatformData(packet, ele):
     platformDesignation = packet.PlatformDesignation
     
     #Indago drone doesn't provide platformTailNumber, add it there for style support.
-    if "Indago" in platformDesignation:
+    if platformDesignation is not None and "Indago" in platformDesignation:
         platformTailNumber="INDAGO"
         
         
     if all(v is not None for v in [lat, lon, alt, PlatformHeading]):
     
-        if platformRubberBand is None:
-            platformRubberBand = QgsRubberBand(iface.mapCanvas(), Qgis.GeometryType.Point)
-            SetDefaultPlatformStyle(platformRubberBand, platformTailNumber)
-            platformRubberBand.setZValue(100)
+        if platformMarker is None:
+            platformMarker = FmvSvgMarkerItem(iface.mapCanvas(), QgsCoordinateReferenceSystem("EPSG:4326"))
+            SetDefaultPlatformStyle(platformMarker, platformTailNumber)
+            platformMarker.setZValue(100)
         
         if platformTailNumber != crtPltTailNum:
-            SetDefaultPlatformStyle(platformRubberBand, platformTailNumber)
+            SetDefaultPlatformStyle(platformMarker, platformTailNumber)
             crtPltTailNum = platformTailNumber
                 
-        platformRubberBand.reset(Qgis.GeometryType.Point)
-        platformRubberBand.setToGeometry(QgsGeometry.fromPointXY(QgsPointXY(lon,lat)),  QgsCoordinateReferenceSystem("EPSG:4326"))
+        platformMarker.setPosition(lon, lat)
+        platformMarker.setAngle(float(PlatformHeading))
         iface.mapCanvas().refresh()
 
     return
@@ -764,12 +765,15 @@ def SetDefaultTrajectoryStyle(mapRubberBand:QgsRubberBand):
     mapRubberBand.setLineStyle(Qt.PenStyle.DashDotLine)
     
 
-def SetDefaultPlatformStyle(mapRubberBand:QgsRubberBand, platform='DEFAULT'):
+def SetDefaultPlatformStyle(marker:FmvSvgMarkerItem, platform='DEFAULT'):
     ''' Platform Symbol '''
-    style = S.getPlatform(platform)    
-    mapRubberBand.setIcon(QgsRubberBand.IconType.ICON_SVG)
-    mapRubberBand.setSvgIcon(style['NAME'], QPoint(-44,- 67//2))
-    mapRubberBand.setIconSize(int(style['SIZE']))
+    style = S.getPlatform(platform)
+    size = int(style['SIZE'])
+    marker.setup(style['NAME'], 0.5, 0.5, size, size)
+    if not marker.isValid():
+        qgsu.showUserAndLogMessage(
+            "", "FMV: platform SVG missing or invalid: " + str(style['NAME']),
+            onlyLog=True)
     return
 
 
