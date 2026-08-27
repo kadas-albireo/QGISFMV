@@ -691,7 +691,7 @@ def convertQImageToMat(img, cn=3):
     '''  Converts a QImage into an opencv MAT format  '''
     img = img.convertToFormat(QImage.Format.Format_RGB888)
     ptr = img.bits()
-    ptr.setsize(img.byteCount())
+    ptr.setsize(img.sizeInBytes())
     return np.array(ptr).reshape(img.height(), img.width(), cn)
 
 

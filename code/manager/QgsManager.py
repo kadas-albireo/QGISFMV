@@ -3,11 +3,10 @@ import ast
 from configparser import ConfigParser
 import os
 from os.path import dirname, abspath
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtGui import QIcon, QAction
 from qgis.PyQt.QtCore import QUrl, QTimer, pyqtSlot, QCoreApplication, QEvent, QPoint, QSettings, Qt
 from qgis.PyQt.QtWidgets import (QDockWidget,
                                  QTableWidgetItem,
-                                 QAction,
                                  QMenu,
                                  QProgressBar,
                                  QVBoxLayout,
@@ -101,7 +100,7 @@ class QMediaPlaylist:
     def isFileInPlaylist(self, filename):
         for x in range(self.mediaCount()):
             try:
-                if filename in self.media(x).canonicalUrl().toString():
+                if filename in self.media(x).toString():
                     return True
             except:
                 if filename in self.media(x).toString():
@@ -178,7 +177,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     
     def eventFilter(self, source, event):
         ''' Event Filter '''
-        if (event.type() == QEvent.Type.MouseButtonPress and source is self.VManager.viewport() and self.VManager.itemAt(event.pos()) is None):
+        if (event.type() == QEvent.Type.MouseButtonPress and source is self.VManager.viewport() and self.VManager.itemAt(event.position().toPoint()) is None):
             self.VManager.clearSelection()
         return QDockWidget.eventFilter(self, source, event)
 

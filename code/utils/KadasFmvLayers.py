@@ -7,7 +7,7 @@ from qgis.PyQt.QtCore import QCoreApplication, QPointF, Qt, QPoint
 
 from configparser import ConfigParser
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
-from qgis.PyQt.QtCore import QVariant, QSettings
+from qgis.PyQt.QtCore import QMetaType, QSettings
 from qgis.core import (Qgis,
                        QgsCoordinateReferenceSystem,
                        QgsDistanceArea,
@@ -23,6 +23,7 @@ from qgis.core import (Qgis,
                        QgsPointXY,
                        QgsProject,
                        QgsProperty,
+                       QgsSymbolLayer,
                        QgsVectorFileWriter,
                        QgsVectorLayer,
                        )
@@ -50,10 +51,10 @@ _layerreg = QgsProject.instance()
 crtSensorSrc = crtSensorSrc2 = crtPltTailNum = 'DEFAULT'
 
 TYPE_MAP = {
-    str: QVariant.String,
-    float: QVariant.Double,
-    int: QVariant.Int,
-    bool: QVariant.Bool
+    str: QMetaType.Type.QString,
+    float: QMetaType.Type.Double,
+    int: QMetaType.Type.Int,
+    bool: QMetaType.Type.Bool
 }
 
 Point = 'Point'
@@ -114,7 +115,7 @@ font_marker.setOffset(QPointF(0.6, -1.6))
 font_marker.setVerticalAnchorPoint(Qgis.VerticalAnchorPoint.Bottom)
 font_marker.setHorizontalAnchorPoint(Qgis.HorizontalAnchorPoint.Left)
 font_marker.setDataDefinedProperty(
-    QgsFontMarkerSymbolLayer.PropertyCharacter,
+    QgsSymbolLayer.Property.Character,
     QgsProperty.fromExpression("'placeholder will be replaced with number'")
 )
 templatePointSymbol.appendSymbolLayer(font_marker)
@@ -251,7 +252,7 @@ def UpdateDrawPointOnMap():
 
         c = templatePointSymbol.clone()
         c.symbolLayer(1).setDataDefinedProperty(
-            QgsFontMarkerSymbolLayer.PropertyCharacter,
+            QgsSymbolLayer.Property.Character,
             QgsProperty.fromExpression(f"'{i + 1}'")
         )
 
@@ -1017,7 +1018,7 @@ def _toQgsField(f):
     ''' Create QgsFiel '''
     if isinstance(f, QgsField):
         return f
-    return QgsField(f[0], TYPE_MAP.get(f[1], QVariant.String))
+    return QgsField(f[0], TYPE_MAP.get(f[1], QMetaType.Type.QString))
 
 
 def newPointsLayer(filename, fields, crs, name=None, geometryType=Point, encoding=encoding):

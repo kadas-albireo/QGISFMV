@@ -410,7 +410,7 @@ class VideoWidget(QVideoWidget):
         if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
             self.setFullScreen(False)
             event.accept()
-        elif event.key() == Qt.Key.Key_Enter and event.modifiers() & Qt.Key_Alt:
+        elif event.key() == Qt.Key.Key_Enter and event.modifiers() & Qt.KeyboardModifier.AltModifier:
             self.setFullScreen(not self.isFullScreen())
             event.accept()
         else:
@@ -733,7 +733,7 @@ class VideoWidget(QVideoWidget):
         # Magnifier can move on black screen for show image borders
         if self._interaction.magnifier:
             if event.buttons():
-                self.dragPos = event.pos()
+                self.dragPos = event.position().toPoint()
                 self.UpdateSurface()
 
         # check if the point is on picture (not in black borders)
@@ -823,12 +823,12 @@ class VideoWidget(QVideoWidget):
         # Object tracking rubberband
         if not self.Tracking_Video_RubberBand.isHidden():
             self.Tracking_Video_RubberBand.setGeometry(
-                QRect(self.origin, event.pos()).normalized())
+                QRect(self.origin, event.position().toPoint()).normalized())
 
         # Censure rubberband
         if not self.Censure_RubberBand.isHidden():
             self.Censure_RubberBand.setGeometry(
-                QRect(self.origin, event.pos()).normalized())
+                QRect(self.origin, event.position().toPoint()).normalized())
 
     def timerEvent(self, _):
         """ Time Event (Magnifier method)"""
@@ -852,7 +852,7 @@ class VideoWidget(QVideoWidget):
 
             # Magnifier Glass
             if self._interaction.magnifier:
-                self.dragPos = event.pos()
+                self.dragPos = event.position().toPoint()
                 self.tapTimer.stop()
                 self.tapTimer.start(10, self)
 
@@ -887,7 +887,7 @@ class VideoWidget(QVideoWidget):
 
                 AddDrawLineOnMap(self.drawLines)
 
-            self.origin = event.pos()
+            self.origin = event.position().toPoint()
             # Object Tracking Interaction
             if self._interaction.objectTracking:
                 self.Tracking_Video_RubberBand.setGeometry(

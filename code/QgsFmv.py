@@ -28,8 +28,8 @@ from qgis.PyQt.QtCore import (QSettings,
                               QTranslator,
                               qVersion,
                               QThread, Qt, QUrl)
-from qgis.PyQt.QtGui import QIcon, QDesktopServices
-from qgis.PyQt.QtWidgets import QAction, QHBoxLayout, QSizePolicy, QTabWidget
+from qgis.PyQt.QtGui import QIcon, QDesktopServices, QAction
+from qgis.PyQt.QtWidgets import QHBoxLayout, QSizePolicy, QTabWidget
 from QGIS_FMV.manager.QgsManager import FmvManager
 from QGIS_FMV.utils.QgsFmvLog import log
 from qgis.PyQt.QtCore import Qt

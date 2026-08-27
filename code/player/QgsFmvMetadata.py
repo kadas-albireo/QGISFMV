@@ -2,6 +2,7 @@
 import csv
 from qgis.PyQt.QtCore import Qt, QCoreApplication
 from qgis.PyQt.QtGui import (QFont,
+                             QPageSize,
                              QTextCursor,
                              QTextDocument,
                              QTextBlockFormat,
@@ -95,13 +96,13 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
 
-        printer.setPageSize(QPrinter.A4)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
         printer.setOutputFileName(out)
         printer.setFullPage(True)
 
         document = QTextDocument()
         document.setDefaultFont(font_normal)
-        document.setPageSize(printer.paperSize(QPrinter.Unit.Point))
+        document.setPageSize(printer.pageLayout().pageSize().size(QPageSize.Unit.Point))
 
         cursor = QTextCursor(document)
         video_t = QCoreApplication.translate("QgsFmvMetadata", "Video : ")
