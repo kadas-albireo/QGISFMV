@@ -736,7 +736,8 @@ def SetDefaultFootprintStyle(mapRubberBand:QgsRubberBand, sensor='DEFAULT'):
     # b = QBrush()
     tmp = style['COLOR'].split(',')
     c = qRgba(int(tmp[0]), int(tmp[1]), int(tmp[2]), int(tmp[3]))
-    mapRubberBand.setFillColor(c)
+    # QColor(QRgb) drops the alpha channel, fromRgba keeps it
+    mapRubberBand.setFillColor(QColor.fromRgba(c))
     
 
 
