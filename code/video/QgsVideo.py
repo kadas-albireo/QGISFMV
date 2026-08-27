@@ -12,7 +12,7 @@ from qgis.PyQt.QtGui import (QImage,
                              QMouseEvent,
                              QImage)
 from qgis.PyQt.QtWidgets import QRubberBand
-from qgis.core import QgsProject, QgsPointXY, QgsWkbTypes, QgsCoordinateReferenceSystem, QgsCoordinateTransform
+from qgis.core import QgsProject, QgsPointXY, QgsWkbTypes, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsCsException
 from qgis.gui import QgsRubberBand
 from qgis.utils import iface
 
@@ -755,8 +755,20 @@ class VideoWidget(QVideoWidget):
             Longitude, Latitude, Altitude = vut.GetPointCommonCoords(
                 event, self.surface)
 
+            # a degenerate GCP homography can send a point that is inside the
+            # image to coordinates outside the WGS84 domain
+            if not vut.IsValidLonLat(Longitude, Latitude):
+                self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)
+                self.parent.lb_cursor_coord.setText("")
+                return
+
             tr = QgsCoordinateTransform( QgsCoordinateReferenceSystem( 'EPSG:4326' ), iface.mapCanvas().mapSettings().destinationCrs(), QgsProject.instance().transformContext() )
-            mapPt = tr.transform( QgsPointXY(Longitude, Latitude) )
+            try:
+                mapPt = tr.transform( QgsPointXY(Longitude, Latitude) )
+            except QgsCsException:
+                self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)
+                self.parent.lb_cursor_coord.setText("")
+                return
 
             vertices = self.Cursor_Canvas_RubberBand.numberOfVertices()
             if vertices > 0:

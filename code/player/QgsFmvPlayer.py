@@ -498,6 +498,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         
         if state != self.playerState:
             self.playerState = state
+            # the media status may not change again, re-evaluate the cursor here
+            self.handleCursor(self.player.mediaStatus())
             if state == QMediaPlayer.PlaybackState.StoppedState:
                 self.btn_play.setIcon(self.playIcon)
                 self.btn_stop.setEnabled(False)
@@ -1145,9 +1147,12 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type status: QMediaPlayer::MediaStatus
         @param status: Video status
         '''
-        if status in (QMediaPlayer.MediaStatus.LoadingMedia,
-                      QMediaPlayer.MediaStatus.BufferingMedia,
-                      QMediaPlayer.MediaStatus.StalledMedia):
+        busy = status in (QMediaPlayer.MediaStatus.LoadingMedia,
+                          QMediaPlayer.MediaStatus.BufferingMedia,
+                          QMediaPlayer.MediaStatus.StalledMedia)
+        # a paused player stops consuming its buffer, so the media status
+        # can stay on BufferingMedia forever and the busy cursor with it
+        if busy and self.player.playbackState() != QMediaPlayer.PlaybackState.PausedState:
             self.setCursor(Qt.CursorShape.BusyCursor)
         else:
             self.unsetCursor()

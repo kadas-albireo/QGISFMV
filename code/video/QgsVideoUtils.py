@@ -9,6 +9,7 @@ from QGIS_FMV.utils.QgsFmvUtils import (GetImageWidth,
                                         GetGCPGeoTransform,
                                         GetGeotransform_affine)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
+from math import isfinite
 from osgeo import gdal
 import numpy as np
 try:
@@ -193,6 +194,18 @@ class VideoUtils(object):
         y=(event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)
         x1, y1 = gdal.ApplyGeoTransform(gt, x, y)
         return [y1, x1]
+
+    @staticmethod
+    def IsValidLonLat(longitude, latitude):
+        ''' True when the pair is inside the WGS84 domain and finite. '''
+        try:
+            longitude = float(longitude)
+            latitude = float(latitude)
+        except (TypeError, ValueError):
+            return False
+        if not (isfinite(longitude) and isfinite(latitude)):
+            return False
+        return -180.0 <= longitude <= 180.0 and -90.0 <= latitude <= 90.0
 
     @staticmethod
     def GetPointCommonCoords(event, surface):
