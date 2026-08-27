@@ -9,8 +9,7 @@ from os.path import dirname, abspath
 import platform
 import shutil
 from qgis.PyQt.QtCore import (QSettings,
-                              QUrl,
-                              QEventLoop)
+                              QUrl)
 from qgis.PyQt.QtCore import QCoreApplication, Qt
 from qgis.PyQt.QtGui import QImage, QPainter
 from qgis.PyQt.QtNetwork import QNetworkRequest
@@ -391,7 +390,14 @@ class BufferedMetaReader():
         return value
 
     def dispose(self):
-        pass
+        ''' Kill the ffmpeg processes still buffering for this video. '''
+        for thread in list(self._meta.values()):
+            try:
+                if thread.p is not None and thread.p.poll() is None:
+                    thread.p.kill()
+            except Exception:
+                pass
+        self._meta = {}
 
 
 class callBackMetadataThread(threading.Thread):
@@ -400,7 +406,10 @@ class callBackMetadataThread(threading.Thread):
     def __init__(self, cmds = []):
         self.cmds = cmds
         self.p = None
+        self.stdout = b''
         threading.Thread.__init__(self)
+        # never keep the host alive: these threads sit in communicate()
+        self.daemon = True
     
     def setCmds(self, cmds):
         self.cmds = cmds
@@ -500,6 +509,50 @@ def getKlvStreamIndex(videoPath, islocal=False):
         qgsu.showUserAndLogMessage("Error interpreting klv data, metadata cannot be read.", "the parser did not recognize KLV data", level=QGis.Warning)
         return 0
 
+def parseReverseGeocoding(payload):
+    ''' Address string out of a reverse geocoding answer, '-' if unusable. '''
+    try:
+        data = json.loads(payload)
+        address = data.get("address", {})
+        state = address.get("state")
+        for key in ("village", "town"):
+            if key in address and state:
+                return address[key] + ", " + state
+        return data.get("display_name", "-")
+    except Exception:
+        return "-"
+
+
+def requestReverseGeocoding(lat, lon, onResult):
+    ''' Ask the geocoding service for an address, without blocking.
+
+        onResult(text) is called later from the event loop. Returns the reply
+        so the caller can abort it, or None when nothing was sent.
+    '''
+    if not Reverse_geocoding_url or lat is None or lon is None:
+        return None
+
+    try:
+        url = QUrl(Reverse_geocoding_url.format(str(lat), str(lon)))
+        reply = QgsNetworkAccessManager.instance().get(QNetworkRequest(url))
+    except Exception:
+        qgsu.showUserAndLogMessage(
+            "", "requestReverseGeocoding: request could not be sent.", onlyLog=True)
+        return None
+
+    def finished():
+        try:
+            onResult(parseReverseGeocoding(bytes(reply.readAll().data())))
+        except Exception:
+            qgsu.showUserAndLogMessage(
+                "", "requestReverseGeocoding: failed to get address from reverse geocoding service.", onlyLog=True)
+        finally:
+            reply.deleteLater()
+
+    reply.finished.connect(finished)
+    return reply
+
+
 def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0):
     """ Get basic location info about the video """
     location = []
@@ -535,34 +588,10 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                 centerLat = packet.SensorLatitude
                 centerLon = packet.SensorLongitude
             
+            # The reverse geocoding used to run here behind a nested
+            # QEventLoop, which re-entered the event loop while the manager
+            # row was still being built. See requestReverseGeocoding().
             loc = "-"
-
-            if Reverse_geocoding_url != "":
-                try:
-                    url = QUrl(Reverse_geocoding_url.format(
-                        str(centerLat), str(centerLon)))
-                    request = QNetworkRequest(url)
-                    reply = QgsNetworkAccessManager.instance().get(request)
-                    loop = QEventLoop()
-                    reply.finished.connect(loop.quit)
-                    loop.exec()
-                    reply.finished.disconnect(loop.quit)
-                    loop = None
-                    result = reply.readAll()
-                    data = json.loads(result.data())
-
-                    if "village" in data["address"] and "state" in data["address"]:
-                        loc = data["address"]["village"] + \
-                            ", " + data["address"]["state"]
-                    elif "town" in data["address"] and "state" in data["address"]:
-                        loc = data["address"]["town"] + \
-                            ", " + data["address"]["state"]
-                    else:
-                        loc = data["display_name"]
-
-                except Exception:
-                    qgsu.showUserAndLogMessage(
-                        "", "getVideoLocationInfo: failed to get address from reverse geocoding service.", onlyLog=True)
 
             location = [centerLat, centerLon, loc]
 
@@ -1305,7 +1334,7 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
             geotransform = None
             return True
         
-        qgsu.showUserAndLogMessage("", "value8: {}".format(value8), onlyLog=True)
+        #qgsu.showUserAndLogMessage("", "value8: {}".format(value8), onlyLog=True)
         
         if hasElevationModel() and value8 < max_vert_angle:
             cornerPointUL = GetLine3DIntersectionWithDEM(

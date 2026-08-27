@@ -35,7 +35,8 @@ from QGIS_FMV.utils.QgsFmvUtils import (askForFiles,
                                         getVideoManagerList,
                                         getNameSpace,
                                         getKlvStreamIndex,                  
-                                        getVideoLocationInfo)
+                                        getVideoLocationInfo,
+                                        requestReverseGeocoding)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.core import QgsPointXY, QgsCoordinateReferenceSystem, QgsProject, QgsCoordinateTransform, Qgis as QGis
 
@@ -165,6 +166,8 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.buf_interval = 2000
         self.update_interval = 2000
         self.loading = False
+        self.disposed = False
+        self.geocodeReplies = []
         self.playlist = QMediaPlaylist()
         self.VManager.viewport().installEventFilter(self)
 
@@ -285,6 +288,56 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             self.playlist.removeMedia(idx)
 
     
+    def requestLocationName(self, row_id, location):
+        ''' Fill the location column once the geocoding answer arrives. '''
+        def onResult(text):
+            if self.disposed or not text or text == "-":
+                return
+            row = self.rowFromId(row_id)
+            if row is not None:
+                self.VManager.setItem(row, 4, QTableWidgetItem(text))
+
+        reply = requestReverseGeocoding(location[0], location[1], onResult)
+        if reply is not None:
+            self.geocodeReplies.append(reply)
+            reply.finished.connect(
+                lambda: self.geocodeReplies.remove(reply)
+                if reply in self.geocodeReplies else None)
+
+    def rowFromId(self, row_id):
+        ''' Rows move when one is removed, so look the video up by its id. '''
+        for row in range(self.VManager.rowCount()):
+            item = self.VManager.item(row, 0)
+            if item is not None and item.text() == str(row_id):
+                return row
+        return None
+
+    def dispose(self):
+        ''' Release what would otherwise outlive the widget: the player,
+            the ffmpeg reader threads and the pending network replies.
+        '''
+        self.disposed = True
+
+        for reply in list(self.geocodeReplies):
+            try:
+                reply.abort()
+                reply.deleteLater()
+            except Exception:
+                pass
+        self.geocodeReplies = []
+
+        self.closePlayer()
+        if self._PlayerDlg is not None:
+            self._PlayerDlg.deleteLater()
+            self._PlayerDlg = None
+
+        for reader in self.meta_reader:
+            try:
+                reader.dispose()
+            except Exception:
+                pass
+        self.meta_reader = []
+
     def closePlayer(self):
         ''' Close FMV '''
         try:
@@ -411,6 +464,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
                 else:
                     self.VManager.setItem(rowPosition, 4, QTableWidgetItem(
                         self.initialPt[rowPosition][2]))
+                    self.requestLocationName(row_id, self.initialPt[rowPosition])
                     pbar.setValue(90)
                     self.videoPlayable[rowPosition] = True
             except Exception:

@@ -107,8 +107,37 @@ class Fmv:
         ''' Unload Plugin '''
         qgsu.showUserAndLogMessage("", "Unloading plugin", onlyLog=True)
         RemoveAllDrawings()
+
+        # connected in __init__, so it would pile up one connection per load
+        try:
+            self.iface.projectWillBeClosed.disconnect(RemoveAllDrawings)
+        except Exception:
+            pass
+
+        # the manager lives inside a KadasBottomBar parented to the map
+        # canvas, so it survives the unload unless it is taken down here
+        if self._FMVManager is not None:
+            try:
+                self._FMVManager.dispose()
+            except Exception:
+                pass
+            self._FMVManager.setParent(None)
+            self._FMVManager.deleteLater()
+            self._FMVManager = None
+
+        if self.bottomBar is not None:
+            self.bottomBar.hide()
+            self.bottomBar.setParent(None)
+            self.bottomBar.deleteLater()
+            self.bottomBar = None
+
+        self.run_once = False
+
         self.iface.removeAction(self.actionFMV, self.iface.PLUGIN_MENU, self.iface.CUSTOM_TAB, "&Plugins")
-        self.iface.getRibbonWidget().currentChanged.disconnect(self.tabChanged)
+        try:
+            self.iface.getRibbonWidget().currentChanged.disconnect(self.tabChanged)
+        except Exception:
+            pass
         log.removeLogging()
 
     def About(self):
