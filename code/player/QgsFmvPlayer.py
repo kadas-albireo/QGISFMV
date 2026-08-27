@@ -174,7 +174,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
         self.player.playbackStateChanged.connect(self.setCurrentState)
 
-        self.playerState = QMediaPlayer.MediaStatus.LoadingMedia
+        self.playerState = QMediaPlayer.PlaybackState.StoppedState
         
         #self.playFile(path, self.islocal, self.klv_folder)
         qgsu.showUserAndLogMessage("", "Init Duration is:. "+str(self.player.duration()), onlyLog=True)
@@ -1179,8 +1179,22 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             # self.player.play()
 
     def setPlaylist(self, playlist):
-        self.player.setSource(playlist.media(0))
-        self.player.play()
+        ''' Keep a reference on the manager playlist.
+            Playback is started by playFile(), not here.
+        '''
+        self.playlist = playlist
+
+    def currentMedia(self, videoPath):
+        ''' QUrl of the playlist entry being opened.
+            Falls back to the raw path when the playlist has no valid
+            current index.
+        '''
+        playlist = getattr(self.parent, 'playlist', None)
+        if playlist is not None:
+            index = playlist.currentIndex()
+            if 0 <= index < playlist.mediaCount():
+                return playlist.media(index)
+        return QUrl.fromLocalFile(videoPath)
 
     def playFile(self, videoPath, islocal=False, klv_folder=None):
         ''' Play file from path
@@ -1207,6 +1221,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
                 self.actionAudio.setEnabled(False)
                 self.actionSave_Audio.setEnabled(False)
                 self.HasFileAudio = False
+
+            self.player.setSource(self.currentMedia(videoPath))
 
             self.playClicked(True)
 
@@ -1331,8 +1347,9 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
     def playClicked(self, _):       
         ''' Stop and Play video '''
-        if self.playerState in (QMediaPlayer.PlaybackState.StoppedState,
-                                QMediaPlayer.PlaybackState.PausedState):
+        state = self.player.playbackState()
+        if state in (QMediaPlayer.PlaybackState.StoppedState,
+                     QMediaPlayer.PlaybackState.PausedState):
             self.btn_play.setIcon(self.pauseIcon)
             self.btn_stop.setEnabled(True)
 
@@ -1341,7 +1358,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
             # Play Video
             self.player.play()
-        elif self.playerState == QMediaPlayer.PlaybackState.PlayingState:
+        elif state == QMediaPlayer.PlaybackState.PlayingState:
             self.btn_play.setIcon(self.playIcon)
             self.pauseAt(self.player.position())
             
