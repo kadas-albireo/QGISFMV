@@ -450,12 +450,29 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.metadataDlg.VManager.resizeColumnsToContents()
         self.metadataDlg.VManager.setVisible(True)
         self.metadataDlg.VManager.verticalScrollBar().setSliderPosition(self.sliderPosition)
+        self.restoreMetadataSelection()
 
     def clearMetadata(self):
         ''' Clear Metadata List '''
         try:
             self.sliderPosition = self.metadataDlg.VManager.verticalScrollBar().sliderPosition()
+            # the table is rebuilt on every frame, remember what the user
+            # had selected so a value can still be picked up and copied
+            self.metadataSelection = [(i.row(), i.column())
+                                      for i in self.metadataDlg.VManager.selectedIndexes()]
             self.metadataDlg.VManager.setRowCount(0)
+        except Exception:
+            None
+
+    def restoreMetadataSelection(self):
+        ''' Reselect the cells that were selected before the refresh. '''
+        try:
+            table = self.metadataDlg.VManager
+            for r, c in getattr(self, 'metadataSelection', []):
+                if r < table.rowCount() and c < table.columnCount():
+                    item = table.item(r, c)
+                    if item is not None:
+                        item.setSelected(True)
         except Exception:
             None
 
