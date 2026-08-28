@@ -22,8 +22,9 @@ class Ui_FmvOpenStream(object):
         self.horizontalLayout_2 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_2.setObjectName("horizontalLayout_2")
         self.cmb_protocol = QtWidgets.QComboBox(FmvOpenStream)
-        self.cmb_protocol.setCursor(QtGui.QCursor(QtCore.Qt.IBeamCursor))
+        self.cmb_protocol.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.IBeamCursor))
         self.cmb_protocol.setObjectName("cmb_protocol")
+        self.cmb_protocol.addItem("")
         self.cmb_protocol.addItem("")
         self.horizontalLayout_2.addWidget(self.cmb_protocol)
         self.ln_host = QtWidgets.QLineEdit(FmvOpenStream)
@@ -31,7 +32,7 @@ class Ui_FmvOpenStream(object):
         self.ln_host.setObjectName("ln_host")
         self.horizontalLayout_2.addWidget(self.ln_host)
         self.ln_port = QtWidgets.QLineEdit(FmvOpenStream)
-        self.ln_port.setInputMethodHints(QtCore.Qt.ImhNone)
+        self.ln_port.setInputMethodHints(QtCore.Qt.InputMethodHint.ImhNone)
         self.ln_port.setText("")
         self.ln_port.setObjectName("ln_port")
         self.horizontalLayout_2.addWidget(self.ln_port)
@@ -51,9 +52,10 @@ class Ui_FmvOpenStream(object):
     def retranslateUi(self, FmvOpenStream):
         _translate = QtCore.QCoreApplication.translate
         FmvOpenStream.setWindowTitle(_translate("FmvOpenStream", "Open Stream"))
-        self.cmb_protocol.setItemText(0, _translate("FmvOpenStream", "RTP"))
+        self.cmb_protocol.setItemText(0, _translate("FmvOpenStream", "UDP"))
+        self.cmb_protocol.setItemText(1, _translate("FmvOpenStream", "RTP"))
         self.ln_host.setPlaceholderText(_translate("FmvOpenStream", "127.0.0.1"))
-        self.ln_port.setPlaceholderText(_translate("FmvOpenStream", "5005"))
-        self.btn_Open.setText(_translate("FmvOpenStream", "Accept"))
+        self.ln_port.setPlaceholderText(_translate("FmvOpenStream", "8888"))
+        self.btn_Open.setText(_translate("FmvOpenStream", "Add && Close"))
 
 from QGIS_FMV.gui import resources_rc

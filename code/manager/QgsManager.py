@@ -106,6 +106,10 @@ class QMediaPlaylist:
     def addMedia(self, mediaUrl):
         self._medias.append(mediaUrl)
 
+    def setMedia(self, idx, mediaUrl):
+        if 0 <= idx < len(self._medias):
+            self._medias[idx] = mediaUrl
+
     def removeMedia(self, idx):
         if idx <= self._index:
             self._index -= 1 
@@ -195,7 +199,9 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.videoPlayable = []
         self.videoIsStreaming = []
         
-        self.dtm_path = parser['GENERAL']['DTM_file']
+        # optional: the elevation model is normally the project heightmap,
+        # dtm_file is only the fallback for a project without one
+        self.dtm_path = parser.get('GENERAL', 'DTM_file', fallback='')
 
         draw.setValues()
         self.setAcceptDrops(True)            
@@ -481,11 +487,9 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         
         url = ""
         if self.videoIsStreaming[-1]:
-            # show video from splitter (port +1)
-            oldPort = filename.split(":")[2]
-            newPort = str(int(oldPort) + 10)                
-            proto = filename.split(":")[0]
-            url = QUrl(proto + "://127.0.0.1:" + newPort)
+            # play the leg the splitter re-emits, on the port it really
+            # obtained rather than an assumed source port + 10
+            url = QUrl(self.meta_reader[-1].playerUrl())
         else:
             url = QUrl.fromLocalFile(filename)
         
@@ -532,6 +536,20 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     
     def isFileInPlaylist(self, filename):
         return self.playlist.isFileInPlaylist(filename)
+
+    def isSourceInManager(self, source):
+        ''' True when this exact source already has a row.
+
+            The playlist cannot answer this for a stream: what it holds is
+            the local leg the tee re-emits on, not the address the user
+            typed, and that local port changes from one open to the next.
+            Column 3 of the table keeps the source as it was given.
+        '''
+        for row in range(self.VManager.rowCount()):
+            item = self.VManager.item(row, 3)
+            if item is not None and item.text() == source:
+                return True
+        return False
     
     def PlayVideoFromManager(self, model):
         ''' Play video from manager dock.
@@ -576,6 +594,14 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.ToggleActiveRow(row)
         
         self.playlist.setCurrentIndex(row)
+
+        # closing the player kills the splitter; reopening the row has to
+        # restart it, and the local port it gets may differ from last time
+        reader = self.meta_reader[row] if row < len(self.meta_reader) else None
+        if isinstance(reader, StreamMetaReader):
+            if reader.ensureRunning():
+                qgsu.showUserAndLogMessage("", "Stream: splitter restarted.", onlyLog=True)
+            self.playlist.setMedia(row, QUrl(reader.playerUrl()))
         
         #qgsu.CustomMessage("QGIS FMV", path, self._PlayerDlg.fileName, icon="Information")
         #if path != self._PlayerDlg.fileName:
@@ -587,8 +613,11 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         #zoom to map zone     
         curAuthId =  self.iface.mapCanvas().mapSettings().destinationCrs().authid()
         
-        if self.initialPt[row][1] != None and self.initialPt[row][0] != None:
-            map_pos = QgsPointXY(self.initialPt[row][1], self.initialPt[row][0])
+        # a live stream has no start position and a video without metadata
+        # has an empty one; the map recentres itself on the first packet
+        initial = self.initialPt[row] if row < len(self.initialPt) else None
+        if initial and len(initial) > 1 and initial[0] is not None and initial[1] is not None:
+            map_pos = QgsPointXY(initial[1], initial[0])
             if curAuthId != "EPSG:4326":
                 xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateReferenceSystem(curAuthId), QgsProject().instance())
                 map_pos = xform.transform(map_pos)

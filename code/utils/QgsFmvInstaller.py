@@ -23,8 +23,13 @@ parser = ConfigParser(delimiters=(':'), comment_prefixes='/', allow_no_value=Tru
 fileConfig = os.path.join(dirname(dirname(abspath(__file__))), 'settings.ini')
 parser.read(fileConfig)
 
-ffmpegConf = parser['GENERAL']['ffmpeg']
-DemConf = parser['GENERAL']['DTM_file']
+# Both are optional entries and both are read at import time, so a
+# settings.ini without them must not raise here: that failure happens
+# before the plugin exists and shows up as a bare KeyError. ffmpeg is
+# overwritten with the platform path a few lines down anyway, and the
+# elevation model normally comes from the project heightmap now.
+ffmpegConf = parser.get('GENERAL', 'ffmpeg', fallback='')
+DemConf = parser.get('GENERAL', 'DTM_file', fallback='')
 
 try:
     import winreg
@@ -131,8 +136,11 @@ def WindowsInstaller():
             os.remove(filename)
             iface.messageBar().clearWidgets()
 
-    if not isDem():
-        ''' DEM File '''        
+    if DemConf and not isDem():
+        ''' DEM File: only offered when dtm_file names a file that is not
+            there. An empty dtm_file means the elevation model comes from
+            the project heightmap, which is not this installer business.
+        '''
         buttonReply = qgsu.CustomMessage("QGIS FMV",
                                  QCoreApplication.translate("QgsFmvInstaller","""<b>Dem file not exist!</b>"""),
                                  QCoreApplication.translate("QgsFmvInstaller", "Do you want download global DEM?"),
@@ -347,8 +355,10 @@ def LinuxInstaller():
 
                 iface.messageBar().clearWidgets()
 
-    if not isDem():
-        ''' DEM File '''
+    if DemConf and not isDem():
+        ''' DEM File: only when dtm_file points at something missing. With
+            no dtm_file there is nothing to clear and nothing to report.
+        '''
         progressMessageBar = iface.messageBar().createMessage("QGIS FMV",
                                                               QCoreApplication.translate("QgsFmvInstaller", "Dem file not exist!"))
         iface.messageBar().pushWidget(progressMessageBar, QGis.Info)
