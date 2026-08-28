@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import time
 
-from qgis.PyQt.QtCore import Qt, QRect, QPoint, QEvent, QBasicTimer, QSize, QPointF
+from qgis.PyQt.QtCore import (Qt, QRect, QPoint, QEvent, QBasicTimer, QSize,
+                              QPointF, QCoreApplication)
 from qgis.PyQt.QtGui import (QImage,
                              QPalette,
                              QPainter,
@@ -129,6 +130,7 @@ class VideoWidgetSink(QVideoSink):
         self._currentFrame:QVideoFrame = None
         self.flag__first_setup = False
         self._sourceRect = None
+        self._rectFor = None
         self.updateVideoRect()
         self.videoFrameChanged.connect(self.onVideoFrameChanged)     
 
@@ -142,6 +144,12 @@ class VideoWidgetSink(QVideoSink):
     def videoRect(self):
         ''' Get Video Rectangle '''
         return self._targetRect
+
+    def rectKey(self):
+        ''' What the cached rectangles were last computed from. '''
+        if self._currentFrame is None:
+            return None
+        return (self._currentFrame.size(), self.widget.size())
 
     def sourceRect(self):
         ''' Get Source Rectangle '''
@@ -170,10 +178,18 @@ class VideoWidgetSink(QVideoSink):
         ''' Paint Frame'''
 
 
-        if self.flag__first_setup == False:
+        # The target and source rectangles used to be computed once, on the
+        # first valid frame ever seen, and never again. The player window is
+        # reused for every video, so opening a second one kept the first
+        # one geometry and the picture came up badly framed until the user
+        # resized the window, which is the only other thing that recomputes
+        # them. They are refreshed here whenever the picture or the widget
+        # is no longer the size they were computed for.
+        if self.flag__first_setup == False or self._rectFor != self.rectKey():
             if self._currentFrame != None and  self._currentFrame.isValid():
                 self.updateVideoRect()
                 self._sourceRect = self._currentFrame.surfaceFormat().viewport()
+                self._rectFor = self.rectKey()
                 self.flag__first_setup = True
             else:
                 return
@@ -621,6 +637,9 @@ class VideoWidget(QVideoWidget):
         region = event.region()
         self.painter.fillRect(region.boundingRect(), self.brush)  # Background painter color
 
+        if not self.surface.isActive() and getattr(self.parent, "isStreaming", False):
+            self.drawWaitingForSignal(self.painter)
+
         try:
             self.surface.paint(self.painter)
             SetImageSize(self.currentFrame().width(),
@@ -676,6 +695,24 @@ class VideoWidget(QVideoWidget):
 
         self.painter.end()
         return
+
+    def drawWaitingForSignal(self, painter):
+        ''' Say so while a live stream has not delivered a frame yet.
+
+            Otherwise the player is a black rectangle, and nothing tells a
+            stream that has not been started yet from one that is never
+            going to arrive. It disappears on its own: the first frame
+            triggers a repaint and the surface is active from then on.
+        '''
+        painter.save()
+        painter.setPen(QPen(QColor(190, 190, 190)))
+        font = painter.font()
+        font.setPointSize(max(10, min(18, int(self.height() / 25))))
+        painter.setFont(font)
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                         QCoreApplication.translate(
+                             "VideoWidget", "Waiting for signal..."))
+        painter.restore()
 
     def resizeEvent(self, _):
         """

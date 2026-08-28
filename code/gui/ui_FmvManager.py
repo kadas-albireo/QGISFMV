@@ -20,22 +20,23 @@ class Ui_ManagerWindow(object):
         self.mOpenMPEGButton.setObjectName("mOpenMPEGButton")
         self.gridLayout.addWidget(self.mOpenMPEGButton, 0, 0, 1, 1)
 
+        self.mOpenStreamButton = QtWidgets.QToolButton(ManagerWindow)
+        self.mOpenStreamButton.setText("")
+        self.mOpenStreamButton.setObjectName("mOpenStreamButton")
+        self.gridLayout.addWidget(self.mOpenStreamButton, 0, 1, 1, 1)
+
         self.versionLabel = QtWidgets.QLabel(ManagerWindow)
         self.versionLabel.setText("")
         self.versionLabel.setStyleSheet("QLabel { color : grey; }");
-        self.gridLayout.addWidget(self.versionLabel, 0, 1, 1, 1)
+        self.gridLayout.addWidget(self.versionLabel, 0, 2, 1, 1)
         
         #deactivate for 1.0 Version
         #self.mActionCreateMISBButton = QtWidgets.QToolButton(ManagerWindow)
         #self.mActionCreateMISBButton.setText("")
         #self.mActionCreateMISBButton.setObjectName("mActionCreateMISBButton")
         #self.gridLayout.addWidget(self.mActionCreateMISBButton, 0, 1, 1, 1)
-        #self.mOpenStreamButton = QtWidgets.QToolButton(ManagerWindow)
-        #self.mOpenStreamButton.setText("")
-        #self.mOpenStreamButton.setObjectName("mOpenStreamButton")
-        #self.gridLayout.addWidget(self.mOpenStreamButton, 0, 2, 1, 1)
         spacerItem = QtWidgets.QSpacerItem(700, 10, QtWidgets.QSizePolicy.Policy.Expanding, QtWidgets.QSizePolicy.Policy.Minimum)
-        self.gridLayout.addItem(spacerItem, 0, 1, 1, 1)
+        self.gridLayout.addItem(spacerItem, 0, 2, 1, 1)
         
         self.mLowerButton = QtWidgets.QToolButton(ManagerWindow)
         self.mLowerButton.setText("")
@@ -43,7 +44,7 @@ class Ui_ManagerWindow(object):
         icon5.addPixmap(QtGui.QPixmap(":/imgFMV/images/lower.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         self.mLowerButton.setIcon(icon5)
         self.mLowerButton.setObjectName("mLowerButton")
-        self.gridLayout.addWidget(self.mLowerButton, 0, 2, 1, 1)
+        self.gridLayout.addWidget(self.mLowerButton, 0, 3, 1, 1)
         
         
         self.mCloseButton = QtWidgets.QToolButton(ManagerWindow)
@@ -52,7 +53,7 @@ class Ui_ManagerWindow(object):
         icon4.addPixmap(QtGui.QPixmap(":/imgFMV/images/close.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         self.mCloseButton.setIcon(icon4)
         self.mCloseButton.setObjectName("mCloseButton")
-        self.gridLayout.addWidget(self.mCloseButton, 0, 3, 1, 1)
+        self.gridLayout.addWidget(self.mCloseButton, 0, 4, 1, 1)
         
         
         self.VManager = QtWidgets.QTableWidget(ManagerWindow)
@@ -134,7 +135,7 @@ class Ui_ManagerWindow(object):
         self.VManager.setHorizontalHeaderItem(5, item)
         self.VManager.horizontalHeader().setStretchLastSection(True)
         self.VManager.verticalHeader().setVisible(False)
-        self.gridLayout.addWidget(self.VManager, 1, 0, 1, 4)
+        self.gridLayout.addWidget(self.VManager, 1, 0, 1, 5)
         self.actionOpen_Stream = QtGui.QAction(ManagerWindow)
         icon1 = QtGui.QIcon()
         icon1.addPixmap(QtGui.QPixmap(":/imgFMV/images/stream.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
@@ -160,7 +161,7 @@ class Ui_ManagerWindow(object):
         
         #Deactivate for 1.0 Version
         #self.mActionCreateMISBButton.setDefaultAction( self.actionCreate_MISB_File )
-        #self.mOpenStreamButton.setDefaultAction( self.actionOpen_Stream )
+        self.mOpenStreamButton.setDefaultAction( self.actionOpen_Stream )
         QtCore.QMetaObject.connectSlotsByName(ManagerWindow)
 
     def retranslateUi(self, ManagerWindow):
@@ -178,7 +179,9 @@ class Ui_ManagerWindow(object):
         item.setText(_translate("ManagerWindow", "Start Location"))
         item = self.VManager.horizontalHeaderItem(5)
         item.setText(_translate("ManagerWindow", "Progress"))
-        self.actionOpen_Stream.setText(_translate("ManagerWindow", "&Open Stream (experimental)"))
+        self.actionOpen_Stream.setText(_translate("ManagerWindow", "&Open Stream (BETA)"))
+        self.actionOpen_Stream.setToolTip(_translate("ManagerWindow",
+            "Open a live RTP/UDP stream (BETA) - metadata is buffered and may lag the picture"))
         self.actionOpen_MPEG2_File.setText(_translate("ManagerWindow", "Open &Video File"))
         self.actionCreate_MISB_File.setText(_translate("ManagerWindow", "&Create MISB File"))
 

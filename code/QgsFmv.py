@@ -106,6 +106,13 @@ class Fmv:
     def unload(self):
         ''' Unload Plugin '''
         qgsu.showUserAndLogMessage("", "Unloading plugin", onlyLog=True)
+        # the test server outlives its dialog on purpose, so this is the
+        # only place left to stop it before it becomes an orphan ffmpeg
+        try:
+            from QGIS_FMV.utils.QgsFmvTestServer import server
+            server.stop()
+        except Exception:
+            None
         RemoveAllDrawings()
 
         # connected in __init__, so it would pile up one connection per load

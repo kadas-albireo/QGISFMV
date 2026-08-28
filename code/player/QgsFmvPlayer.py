@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os.path
+from time import monotonic
 from qgis.PyQt.QtCore import (QUrl,
                               QPoint,
                               QCoreApplication,
@@ -23,7 +24,9 @@ from qgis.PyQt.QtWidgets import (QToolTip,
                                  QApplication,
                                  QTableWidgetItem,
                                  QToolBar)
-from qgis.core import Qgis as QGis, QgsTask, QgsApplication, QgsRasterLayer, QgsProject, QgsLayerTreeGroup
+from qgis.core import (Qgis as QGis, QgsTask, QgsApplication, QgsRasterLayer,
+                       QgsProject, QgsLayerTreeGroup, QgsPointXY,
+                       QgsCoordinateTransform, QgsCoordinateReferenceSystem)
 
 from qgis.PyQt.QtMultimedia import QMediaPlayer
 
@@ -52,7 +55,8 @@ from QGIS_FMV.utils.QgsFmvUtils import (callBackMetadataThread,
                                         askForFolder,
                                         setCenterMode,
                                         GetGCPGeoTransform,
-                                        GetGeotransform_affine)
+                                        GetGeotransform_affine,
+                                        StreamMetaReader)
 from QGIS_FMV.utils.QgsJsonModel import QJsonModel
 from QGIS_FMV.utils.QgsPlot import CreatePlotsBitrate, ShowPlot
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
@@ -76,6 +80,17 @@ except Exception as e:
 
 # Ui_PlayerWindow, _ = loadUiType(os.path.join(os.path.dirname(__file__), "../ui", "ui_FmvPlayer.ui"))
 
+# How often a live stream is allowed to refresh what the user sees: the
+# metadata table and the map layers alike.
+# A file is read through BufferedMetaReader, which rounds the position to
+# a one second bucket and therefore answers with the same metadata for a
+# whole second, so both only really change once a second. A stream answers
+# with the packet closest to now, so every position notification carries a
+# different packet and everything would be redrawn about ten times a
+# second.
+STREAM_REFRESH_SECONDS = 1.0
+
+
 class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     """ Video Player Class """
         
@@ -88,7 +103,13 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.iface = iface
         self.fileName = path
         self.meta_reader = meta_reader
-        self.isStreaming = False
+        self.isStreaming = isinstance(meta_reader, StreamMetaReader)
+        self.initialZoomDone = False
+        self._lastStreamRefresh = 0.0
+        self._controlToolTips = [(w, w.toolTip()) for w in (
+            self.btn_rewind, self.btn_forward, self.btn_play, self.btn_stop,
+            self.actionMeasureDistance, self.actionMeasureArea,
+            self.actionShow_Video_Info, self.actionSave_Video_Info)]
         self.islocal = islocal
         self.klv_folder = klv_folder
         self.createingMosaic = False
@@ -215,6 +236,11 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
       
     def setMetaReader(self, meta_reader):
         self.meta_reader = meta_reader
+        # the player instance is reused across manager rows, so the mode
+        # has to follow the reader: a live stream is served from a ring
+        # buffer instead of being re-read for every frame
+        self.isStreaming = isinstance(meta_reader, StreamMetaReader)
+        self.applyStreamingControls()
         
     def centerMapPlatform(self, checked):
         ''' Center map on Platform
@@ -345,6 +371,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type stdout_data: String
         @param stdout_data: Binary data
         '''
+        if not self.streamRefreshDue():
+            return
         for packet in StreamParser(stdout_data):
             #try:
             if isinstance(packet, UnknownElement):
@@ -359,6 +387,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             #Exit when the first correct packet has been drawn successfully.
             res = UpdateLayers(packet, parent=self, mosaic=self.createingMosaic, group=self.fileName)
             self.setDrawingEnabled(GetGCPGeoTransform() is not None)
+            self.zoomToFirstPacket(packet)
             if res:
                 #qgsu.showUserAndLogMessage("", "Updating layer for Precision Time Stamp:"+ str(self.data[2]))
                 #for key, value in self.data.items():
@@ -375,6 +404,55 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             #except Exception as e:
             #    qgsu.showUserAndLogMessage("", "QgsFmvPlayer packetStreamParser failed! : " + str(e), onlyLog=True)
 
+    def streamRefreshDue(self):
+        ''' Whether a live stream may refresh the display now.
+
+            Always true for a file: it is read one second at a time, so
+            the reader answers with the same packet in between and the
+            display does not really change. A stream has a new packet on
+            every notification and is held to the same rate here. One gate
+            for the whole packet, so the table and the map always show the
+            same moment of the flight.
+        '''
+        if not self.isStreaming:
+            return True
+        now = monotonic()
+        if now - self._lastStreamRefresh < STREAM_REFRESH_SECONDS:
+            return False
+        self._lastStreamRefresh = now
+        return True
+
+    def zoomToFirstPacket(self, packet):
+        ''' Centre the map once, on a live stream's first known position.
+
+            A file gets this from the manager, which probes the start
+            location before playing. A stream has no position until the
+            first packet arrives, so it is done here instead, once per
+            playback and never afterwards so the user keeps control.
+        '''
+        if self.initialZoomDone or not self.isStreaming:
+            return
+        lat, lon = packet.FrameCenterLatitude, packet.FrameCenterLongitude
+        if lat is None or lon is None:
+            lat, lon = packet.SensorLatitude, packet.SensorLongitude
+        if lat is None or lon is None:
+            return
+        self.initialZoomDone = True
+        try:
+            canvas = self.iface.mapCanvas()
+            authid = canvas.mapSettings().destinationCrs().authid()
+            position = QgsPointXY(lon, lat)
+            if authid != "EPSG:4326":
+                xform = QgsCoordinateTransform(
+                    QgsCoordinateReferenceSystem("EPSG:4326"),
+                    QgsCoordinateReferenceSystem(authid), QgsProject.instance())
+                position = xform.transform(position)
+            canvas.setCenter(position)
+            canvas.zoomScale(50000)
+            qgsu.showUserAndLogMessage("", "Stream: map centred on the first packet.", onlyLog=True)
+        except Exception as e:
+            qgsu.showUserAndLogMessage("", "Stream: initial zoom failed: " + str(e), onlyLog=True)
+
     def callMetadataSync(self, currentTime, nextTime, klv_index=0):
         '''Metadata Sync Call
         @type currentTime: String
@@ -388,8 +466,10 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         fName = self.fileName
                     
         if self.isStreaming:
-            port = int(self.fileName.split(':')[2])
-            fName = self.fileName.replace(str(port), str(port + 1))
+            # a live source cannot be re-opened for a second read; the
+            # splitter already owns it and feeds the ring buffer
+            self.get_metadata_from_buffer()
+            return
         
         p = _spawn(cmds=['-i', fName ,
                                          '-ss', currentTime,
@@ -624,14 +704,16 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
                 QTimer.singleShot(300, lambda: self.player.setPosition(self.player.duration()))
                 return
             
-            if self.parent.initialPt[idx] and self.parent.dtm_path != '':
-                #init elevation model
-                try:
-                    initElevationModel(self.parent.initialPt[idx][0], self.parent.initialPt[idx][1], self.parent.dtm_path)
-                    qgsu.showUserAndLogMessage("", "Elevation model initialized.", onlyLog=True)
-                except Exception as e:
-                    qgsu.showUserAndLogMessage("", "Elevation model NOT initialized: "+str(e), onlyLog=True)
-                    None
+            # the project heightmap needs no start position, and a live
+            # stream has none: bind the model with whatever is known
+            initial = self.parent.initialPt[idx] if idx < len(self.parent.initialPt) else None
+            hasStart = bool(initial) and len(initial) > 1
+            try:
+                initElevationModel(initial[0] if hasStart else None,
+                                   initial[1] if hasStart else None,
+                                   self.parent.dtm_path)
+            except Exception as e:
+                qgsu.showUserAndLogMessage("", "Elevation model NOT initialized: "+str(e), onlyLog=True)
             
             #update filename
             self.fileName = self.parent.VManager.item(idx, 3).text()
@@ -947,7 +1029,9 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.toolBtn_DPoint.setEnabled(enabled)
         self.toolBtn_DLine.setEnabled(enabled)
         self.toolBtn_DPolygon.setEnabled(enabled)
-        self.toolBtn_Measure.setEnabled(enabled)
+        # the loop above re-armed the measure actions, the streaming rule
+        # has the last word
+        self.applyMeasureAvailability()
 
     def UncheckUtils(self, sender, value):
         ''' Uncheck Utils Video
@@ -1021,6 +1105,15 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         if self.actionMagnifying_glass.isChecked():
             self.actionMagnifying_glass.trigger()
         
+        if self.isStreaming:
+            # fakeStop() rewinds to position 0, which a live source cannot
+            # do; stop for real and let play() rejoin the live edge later
+            self.player.stop()
+            self.btn_play.setIcon(self.playIcon)
+            self.btn_stop.setEnabled(False)
+            self.videoWidget.update()
+            return
+
         # Stop Video        
         self.fakeStop()
         
@@ -1059,6 +1152,64 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             self.player.setPosition(0)
             self.videoWidget.update()
         return
+
+    def applyStreamingControls(self):
+        ''' A live stream has no transport controls.
+
+            Rewind, forward and the position slider all end up calling
+            setPosition(), which is meaningless on a live source: it
+            either does nothing or drops the connection. Start and stop
+            go the same way: a live source has no beginning to return to
+            and nothing to resume, it plays for as long as the tee feeds
+            it. All of them are greyed out.
+        '''
+        live = self.isStreaming
+        for widget in (self.btn_rewind, self.btn_forward, self.sliderDuration):
+            widget.setEnabled(not live)
+        self.btn_play.setEnabled(not live)
+        # playback enables and disables the stop button by itself, so it
+        # is only ever forced down here, never back up
+        if live:
+            self.btn_stop.setEnabled(False)
+        # both video info entries run ffprobe on the source address. On a
+        # live source that means binding the port the tee already reads, so
+        # they would steal datagrams from the picture and answer nothing.
+        self.actionShow_Video_Info.setEnabled(not live)
+        self.actionSave_Video_Info.setEnabled(not live)
+        self.applyMeasureAvailability()
+        tip = QCoreApplication.translate(
+            "QgsFmvPlayer", "Not available on a live stream")
+        for widget, original in self._controlToolTips:
+            widget.setToolTip(tip if live else original)
+
+    def applyMeasureAvailability(self):
+        ''' Measuring needs a scene that holds still.
+
+            A measurement is taken on the picture and converted through
+            the geotransform of the frame it was drawn on. A file can be
+            paused on that frame; a live stream cannot, the footprint has
+            moved under the measurement by the time it is finished. The
+            tools stay off for the whole stream.
+        '''
+        available = self._drawingEnabled and not self.isStreaming
+        if not available and (self.actionMeasureDistance.isChecked()
+                              or self.actionMeasureArea.isChecked()):
+            self.RemoveMeasures()
+        for action in (self.actionMeasureDistance, self.actionMeasureArea):
+            action.setEnabled(available)
+        self.toolBtn_Measure.setEnabled(available)
+
+    def resumeLive(self):
+        ''' Rejoin the live edge instead of replaying the buffered gap.
+
+            While paused the datagrams keep arriving; play() would carry on
+            from where the picture froze and fall further behind on every
+            pause. Re-setting the source drops what was buffered and
+            resubscribes at the current instant.
+        '''
+        self.player.stop()
+        self.player.setSource(self.currentMedia(self.fileName))
+        self.player.play()
 
     def forwardMedia(self):
         ''' Button forward Video '''
@@ -1167,7 +1318,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
             totalTime = _seconds_to_time(duration)
             currentTime = _seconds_to_time(currentInfo)
-            tStr = currentTime + " / " + totalTime
+            tStr = (currentTime + " (LIVE)") if self.isStreaming \
+                else (currentTime + " / " + totalTime)
             currentTimeInfo = _seconds_to_time_frac(currentInfo)
 
             if self.isStreaming:
@@ -1261,6 +1413,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @param klv_folder: klv folder if video is created using multiplexor
         '''
         self.closing=False
+        self.initialZoomDone = False
+        self._lastStreamRefresh = 0.0
         self.islocal = islocal
         self.klv_folder = klv_folder
         try:
@@ -1269,13 +1423,17 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             self.clearMetadata()
             QApplication.processEvents()
 
+            # basename() of rtp://host:port would leave just the port
+            title = videoPath if self.isStreaming else os.path.basename(videoPath)
             self.setWindowTitle(QCoreApplication.translate(
-                "QgsFmvPlayer", 'Playing : ') + os.path.basename(videoPath))
+                "QgsFmvPlayer", 'Playing : ') + title)
 
             CreateVideoLayers(hasElevationModel(), videoPath)
 
             self.HasFileAudio = True
-            if not self.HasAudio(videoPath):
+            # never probe a live source: ffprobe would bind the same UDP
+            # port as the splitter and block the GUI until it gives up
+            if not self.isStreaming and not self.HasAudio(videoPath):
                 self.actionAudio.setEnabled(False)
                 self.actionSave_Audio.setEnabled(False)
                 self.HasFileAudio = False
@@ -1283,6 +1441,9 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             self.player.setSource(self.currentMedia(videoPath))
 
             self.playClicked(True)
+            # playClicked arms the transport buttons, put them back down
+            # when this is a live source
+            self.applyStreamingControls()
 
         except Exception as e:
             qgsu.showUserAndLogMessage(QCoreApplication.translate(
@@ -1409,13 +1570,16 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         if state in (QMediaPlayer.PlaybackState.StoppedState,
                      QMediaPlayer.PlaybackState.PausedState):
             self.btn_play.setIcon(self.pauseIcon)
-            self.btn_stop.setEnabled(True)
+            self.btn_stop.setEnabled(not self.isStreaming)
 
             if self.staticDraw:
                 self.RemoveMeasures()
 
             # Play Video
-            self.player.play()
+            if self.isStreaming:
+                self.resumeLive()
+            else:
+                self.player.play()
         elif state == QMediaPlayer.PlaybackState.PlayingState:
             self.btn_play.setIcon(self.playIcon)
             self.pauseAt(self.player.position())
@@ -1707,6 +1871,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         else:
             self.metadataDlg.show()
 
+        self._lastStreamRefresh = monotonic()
         self.addMetadata(self.data)
         return
 
@@ -1765,24 +1930,51 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         #    event.ignore()
         #    return
         
+        # Closing a live stream held the interface for several seconds.
+        # Two things about that. The order below is deliberate: the tee is
+        # killed only once the player has let go of the socket, because
+        # tearing down a demuxer whose source has already gone silent is
+        # what makes a reader wait. And every step is timed into the log,
+        # so if a close ever feels slow again the log says which one it was
+        # instead of leaving it to guesswork.
+        timings = []
+        stepStarted = monotonic()
+
+        def step(label):
+            timings.append('%s %.2fs' % (label, monotonic() - stepStarted))
+
+        # Stop Video
+        self.stop()
+        step('stop')
+
+        if self.isStreaming:
+            # let go of the local socket while the tee is still feeding it
+            stepStarted = monotonic()
+            try:
+                self.player.setSource(QUrl())
+            except Exception:
+                None
+            step('release source')
+
         # Close splitter
         # If we don't close it and open a new video, the metadata shown are the old.
-        # TODO: NOT WORK
+        stepStarted = monotonic()
         try:
             self.meta_reader.dispose()
         except Exception:
             None
-        
-        # Stop Video
-        self.stop()
-        
-        #QTimer.singleShot(2500, lambda: self.resumePlay(oldState))    
-            
+        step('dispose reader')
+
         # Toggle Active flag in metadata dock
         self.parent.ToggleActiveFromTitle()
 
         # Remove All Data
+        stepStarted = monotonic()
         self.RemoveAllData()
+        step('remove data')
+        if self.isStreaming:
+            qgsu.showUserAndLogMessage('', 'Stream close: ' + ', '.join(timings),
+                                       onlyLog=True)
 
         # We close metadata dock if it's open
         try:
