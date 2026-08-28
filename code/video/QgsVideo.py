@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import time
 
-from qgis.PyQt.QtCore import Qt, QRect, QPoint, QEvent, QBasicTimer, QSize, QPointF
+from qgis.PyQt.QtCore import (Qt, QRect, QPoint, QEvent, QBasicTimer, QSize,
+                              QPointF, QCoreApplication)
 from qgis.PyQt.QtGui import (QImage,
                              QPalette,
                              QPainter,
@@ -12,7 +13,7 @@ from qgis.PyQt.QtGui import (QImage,
                              QMouseEvent,
                              QImage)
 from qgis.PyQt.QtWidgets import QRubberBand
-from qgis.core import QgsProject, QgsPointXY, QgsWkbTypes, QgsCoordinateReferenceSystem, QgsCoordinateTransform
+from qgis.core import QgsProject, QgsPointXY, QgsWkbTypes, QgsCoordinateReferenceSystem, QgsCoordinateTransform, QgsCsException
 from qgis.gui import QgsRubberBand
 from qgis.utils import iface
 
@@ -129,6 +130,7 @@ class VideoWidgetSink(QVideoSink):
         self._currentFrame:QVideoFrame = None
         self.flag__first_setup = False
         self._sourceRect = None
+        self._rectFor = None
         self.updateVideoRect()
         self.videoFrameChanged.connect(self.onVideoFrameChanged)     
 
@@ -142,6 +144,12 @@ class VideoWidgetSink(QVideoSink):
     def videoRect(self):
         ''' Get Video Rectangle '''
         return self._targetRect
+
+    def rectKey(self):
+        ''' What the cached rectangles were last computed from. '''
+        if self._currentFrame is None:
+            return None
+        return (self._currentFrame.size(), self.widget.size())
 
     def sourceRect(self):
         ''' Get Source Rectangle '''
@@ -170,10 +178,18 @@ class VideoWidgetSink(QVideoSink):
         ''' Paint Frame'''
 
 
-        if self.flag__first_setup == False:
+        # The target and source rectangles used to be computed once, on the
+        # first valid frame ever seen, and never again. The player window is
+        # reused for every video, so opening a second one kept the first
+        # one geometry and the picture came up badly framed until the user
+        # resized the window, which is the only other thing that recomputes
+        # them. They are refreshed here whenever the picture or the widget
+        # is no longer the size they were computed for.
+        if self.flag__first_setup == False or self._rectFor != self.rectKey():
             if self._currentFrame != None and  self._currentFrame.isValid():
                 self.updateVideoRect()
                 self._sourceRect = self._currentFrame.surfaceFormat().viewport()
+                self._rectFor = self.rectKey()
                 self.flag__first_setup = True
             else:
                 return
@@ -410,7 +426,7 @@ class VideoWidget(QVideoWidget):
         if event.key() == Qt.Key.Key_Escape and self.isFullScreen():
             self.setFullScreen(False)
             event.accept()
-        elif event.key() == Qt.Key.Key_Enter and event.modifiers() & Qt.Key_Alt:
+        elif event.key() == Qt.Key.Key_Enter and event.modifiers() & Qt.KeyboardModifier.AltModifier:
             self.setFullScreen(not self.isFullScreen())
             event.accept()
         else:
@@ -621,6 +637,9 @@ class VideoWidget(QVideoWidget):
         region = event.region()
         self.painter.fillRect(region.boundingRect(), self.brush)  # Background painter color
 
+        if not self.surface.isActive() and getattr(self.parent, "isStreaming", False):
+            self.drawWaitingForSignal(self.painter)
+
         try:
             self.surface.paint(self.painter)
             SetImageSize(self.currentFrame().width(),
@@ -676,6 +695,24 @@ class VideoWidget(QVideoWidget):
 
         self.painter.end()
         return
+
+    def drawWaitingForSignal(self, painter):
+        ''' Say so while a live stream has not delivered a frame yet.
+
+            Otherwise the player is a black rectangle, and nothing tells a
+            stream that has not been started yet from one that is never
+            going to arrive. It disappears on its own: the first frame
+            triggers a repaint and the surface is active from then on.
+        '''
+        painter.save()
+        painter.setPen(QPen(QColor(190, 190, 190)))
+        font = painter.font()
+        font.setPointSize(max(10, min(18, int(self.height() / 25))))
+        painter.setFont(font)
+        painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                         QCoreApplication.translate(
+                             "VideoWidget", "Waiting for signal..."))
+        painter.restore()
 
     def resizeEvent(self, _):
         """
@@ -733,7 +770,7 @@ class VideoWidget(QVideoWidget):
         # Magnifier can move on black screen for show image borders
         if self._interaction.magnifier:
             if event.buttons():
-                self.dragPos = event.pos()
+                self.dragPos = event.position().toPoint()
                 self.UpdateSurface()
 
         # check if the point is on picture (not in black borders)
@@ -755,8 +792,20 @@ class VideoWidget(QVideoWidget):
             Longitude, Latitude, Altitude = vut.GetPointCommonCoords(
                 event, self.surface)
 
+            # a degenerate GCP homography can send a point that is inside the
+            # image to coordinates outside the WGS84 domain
+            if not vut.IsValidLonLat(Longitude, Latitude):
+                self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)
+                self.parent.lb_cursor_coord.setText("")
+                return
+
             tr = QgsCoordinateTransform( QgsCoordinateReferenceSystem( 'EPSG:4326' ), iface.mapCanvas().mapSettings().destinationCrs(), QgsProject.instance().transformContext() )
-            mapPt = tr.transform( QgsPointXY(Longitude, Latitude) )
+            try:
+                mapPt = tr.transform( QgsPointXY(Longitude, Latitude) )
+            except QgsCsException:
+                self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)
+                self.parent.lb_cursor_coord.setText("")
+                return
 
             vertices = self.Cursor_Canvas_RubberBand.numberOfVertices()
             if vertices > 0:
@@ -810,6 +859,7 @@ class VideoWidget(QVideoWidget):
                 self.AddMoveEventValue(self.drawMeasureArea, Longitude, Latitude, Altitude)
 
         else:
+            self.Cursor_Canvas_RubberBand.reset(QgsWkbTypes.PointGeometry)
             self.parent.lb_cursor_coord.setText("<span style='font-size:10pt; font-weight:bold;'>Lon :</span>" +
                                                 "<span style='font-size:9pt; font-weight:normal;'>-</span>" +
                                                 "<span style='font-size:10pt; font-weight:bold;'> Lat :</span>" +
@@ -823,12 +873,12 @@ class VideoWidget(QVideoWidget):
         # Object tracking rubberband
         if not self.Tracking_Video_RubberBand.isHidden():
             self.Tracking_Video_RubberBand.setGeometry(
-                QRect(self.origin, event.pos()).normalized())
+                QRect(self.origin, event.position().toPoint()).normalized())
 
         # Censure rubberband
         if not self.Censure_RubberBand.isHidden():
             self.Censure_RubberBand.setGeometry(
-                QRect(self.origin, event.pos()).normalized())
+                QRect(self.origin, event.position().toPoint()).normalized())
 
     def timerEvent(self, _):
         """ Time Event (Magnifier method)"""
@@ -852,7 +902,7 @@ class VideoWidget(QVideoWidget):
 
             # Magnifier Glass
             if self._interaction.magnifier:
-                self.dragPos = event.pos()
+                self.dragPos = event.position().toPoint()
                 self.tapTimer.stop()
                 self.tapTimer.start(10, self)
 
@@ -887,7 +937,7 @@ class VideoWidget(QVideoWidget):
 
                 AddDrawLineOnMap(self.drawLines)
 
-            self.origin = event.pos()
+            self.origin = event.position().toPoint()
             # Object Tracking Interaction
             if self._interaction.objectTracking:
                 self.Tracking_Video_RubberBand.setGeometry(

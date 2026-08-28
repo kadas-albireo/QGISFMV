@@ -29,6 +29,7 @@ from QGIS_FMV.klvdata.elementparser import BytesElementParser
 from QGIS_FMV.klvdata.elementparser import DateTimeElementParser
 from QGIS_FMV.klvdata.elementparser import StringElementParser
 from QGIS_FMV.klvdata.elementparser import IEEE754ElementParser
+from QGIS_FMV.klvdata.elementparser import MappedElementParser
 from QGIS_FMV.klvdata.setparser import SetParser
 from QGIS_FMV.klvdata.streamparser import StreamParser
 
@@ -683,3 +684,145 @@ class AlternatePlatformEllipsoidHeightExtended(IEEE754ElementParser):
     _range = (-900, 40000)
     units = 'meters'
 
+
+
+# ---------------------------------------------------------------------------
+# Elements seen in flat pre 0601 streams that the set above did not declare.
+#
+# Keys carrying a genuine ST 0601 equivalent reuse its tag so the rest of the
+# plugin keeps working unchanged. The remaining ones are legacy only and get
+# tags in the 200 range, which ST 0601 does not use: they show up in the
+# metadata dock and are ignored everywhere else.
+# ---------------------------------------------------------------------------
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class PlatformDesignationLegacy(StringElementParser):
+    """Device designation, RP 210 dictionary version 3.
+
+    Same item as PlatformDesignation above but registered under a later
+    dictionary version, so it maps onto the same ST 0601 tag.
+    """
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 03 01 01 21 01 00 00 00 00")
+    TAG = 10
+    UDSKey = "06 0E 2B 34 01 01 01 03 01 01 21 01 00 00 00 00"
+    LDSName = "Platform Designation"
+    ESDName = "Platform Designation"
+    UDSName = "Device Designation"
+    min_length, max_length = 0, 127
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class OrganisationLegacy(StringElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 02 01 03 00 00 00 00 00")
+    TAG = 200
+    UDSKey = "06 0E 2B 34 01 01 01 01 02 01 03 00 00 00 00 00"
+    LDSName = "Organisation"
+    ESDName = ""
+    UDSName = ""
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class ImageCodingLegacy(StringElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 03 01 02 01 02 00 00 00")
+    TAG = 201
+    UDSKey = "06 0E 2B 34 01 01 01 01 03 01 02 01 02 00 00 00"
+    LDSName = "Image Coding"
+    ESDName = ""
+    UDSName = ""
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class AspectRatioLegacy(StringElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 03 01 03 03 01 00 00 00")
+    TAG = 202
+    UDSKey = "06 0E 2B 34 01 01 01 01 03 01 03 03 01 00 00 00"
+    LDSName = "Aspect Ratio"
+    ESDName = ""
+    UDSName = ""
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class FrameTimeLegacy(StringElementParser):
+    """Frame time as text, carried alongside the microsecond time stamp."""
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 07 02 01 01 01 01 00 00")
+    TAG = 203
+    UDSKey = "06 0E 2B 34 01 01 01 01 07 02 01 01 01 01 00 00"
+    LDSName = "Frame Time - UTC"
+    ESDName = ""
+    UDSName = ""
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class DataValidLegacy(StringElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 0E 01 01 01 05 00 00 00")
+    TAG = 204
+    UDSKey = "06 0E 2B 34 01 01 01 01 0E 01 01 01 05 00 00 00"
+    LDSName = "Data Valid"
+    ESDName = ""
+    UDSName = ""
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class SensorAzimuthLegacy(MappedElementParser):
+    """Line of sight azimuth relative to the platform, 32 bit over 360 degrees.
+
+    Not mapped onto tag 18: this set already registers a Sensor Relative
+    Azimuth Angle on a different key, and overriding it would change how
+    videos that carry both are drawn.
+    """
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 0E 01 01 02 04 00 00 00")
+    TAG = 205
+    UDSKey = "06 0E 2B 34 01 01 01 01 0E 01 01 02 04 00 00 00"
+    LDSName = "Sensor Azimuth (legacy)"
+    ESDName = ""
+    UDSName = ""
+    _domain = (0, 2 ** 32 - 1)
+    _range = (0, 360)
+    units = 'degrees'
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class SensorElevationLegacy(MappedElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 0E 01 01 02 05 00 00 00")
+    TAG = 206
+    UDSKey = "06 0E 2B 34 01 01 01 01 0E 01 01 02 05 00 00 00"
+    LDSName = "Sensor Elevation (legacy)"
+    ESDName = ""
+    UDSName = ""
+    _domain = (-2 ** 31, 2 ** 31 - 1)
+    _range = (-180, 180)
+    units = 'degrees'
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class SensorRollLegacy(MappedElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 01 0E 01 01 02 06 00 00 00")
+    TAG = 207
+    UDSKey = "06 0E 2B 34 01 01 01 01 0E 01 01 02 06 00 00 00"
+    LDSName = "Sensor Roll (legacy)"
+    ESDName = ""
+    UDSName = ""
+    _domain = (-2 ** 31, 2 ** 31 - 1)
+    _range = (-180, 180)
+    units = 'degrees'
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class ImageSourceIndexLegacy(BytesElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 03 01 03 04 02 00 00 00 00")
+    TAG = 208
+    UDSKey = "06 0E 2B 34 01 01 01 03 01 03 04 02 00 00 00 00"
+    LDSName = "Image Source Index"
+    ESDName = ""
+    UDSName = ""
+
+
+@UAVBasicUniversalMetadataSet.add_parser
+class SecurityClassificationLegacy(StringElementParser):
+    key = hexstr_to_bytes("06 0E 2B 34 01 01 01 03 02 08 02 01 00 00 00 00")
+    TAG = 209
+    UDSKey = "06 0E 2B 34 01 01 01 03 02 08 02 01 00 00 00 00"
+    LDSName = "Security Classification"
+    ESDName = ""
+    UDSName = ""

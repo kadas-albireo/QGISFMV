@@ -8,7 +8,7 @@ class QgsFmvSlider(QtWidgets.QSlider):
     def mousePressEvent(self, event):
         super(QgsFmvSlider, self).mousePressEvent(event)
         if event.button() == QtCore.Qt.MouseButton.LeftButton:
-            val = self.pixelPosToRangeValue(event.pos())
+            val = self.pixelPosToRangeValue(event.position().toPoint())
             self.setValue(val)
             self.mousePressed.emit(val)
             

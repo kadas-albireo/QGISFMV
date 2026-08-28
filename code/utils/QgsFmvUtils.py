@@ -3,14 +3,13 @@ from configparser import ConfigParser
 from datetime import datetime
 import inspect
 import json
-from math import sin, atan, tan, sqrt, radians, pi, degrees
+from math import sin, cos, atan, tan, sqrt, radians, pi, degrees
 import os
 from os.path import dirname, abspath
 import platform
 import shutil
 from qgis.PyQt.QtCore import (QSettings,
-                              QUrl,
-                              QEventLoop)
+                              QUrl)
 from qgis.PyQt.QtCore import QCoreApplication, Qt
 from qgis.PyQt.QtGui import QImage, QPainter
 from qgis.PyQt.QtNetwork import QNetworkRequest
@@ -29,6 +28,7 @@ from qgis.core import (QgsApplication,
 import subprocess
 import threading
 import collections
+import socket
 from queue import Queue, Empty
 
 from osgeo import gdal, osr
@@ -36,7 +36,11 @@ from osgeo import gdal, osr
 from QGIS_FMV.geo import sphere
 from QGIS_FMV.klvdata.element import UnknownElement
 from QGIS_FMV.klvdata.streamparser import StreamParser
+from QGIS_FMV.utils.QgsFmvStreamBuffer import KlvFramer, TimedPacketBuffer
+from QGIS_FMV.klvdata.universalset import isFlatUniversalStream
 from QGIS_FMV.utils.KadasFmvLayers import (addLayerNoCrsDialog,
+                                         HideFootPrintData,
+                                         HideBeamsData,
                                          ExpandLayer,
                                          UpdateFootPrintData,
                                          UpdateTrajectoryData,
@@ -57,11 +61,41 @@ frames_g = parser['LAYERS']['frames_g']
 Reverse_geocoding_url = parser['GENERAL']['Reverse_geocoding_url']
 min_buffer_size = int(parser['GENERAL']['min_buffer_size'])
 max_vert_angle = int(parser['GENERAL']['max_vert_angle'])
+# streaming (beta) - tolerate an older settings.ini
+stream_latency_ms = parser.getint('GENERAL', 'stream_latency_ms', fallback=1200)
+stream_buffer_size = parser.getint('GENERAL', 'stream_buffer_size', fallback=256)
+# streaming (beta) - the tee re-emits the picture on a local socket. Both
+# ends get a large receive buffer because a GUI hiccup longer than the
+# buffer holds is a dropped datagram, which costs whole video frames.
+STREAM_SOCKET_BUFFER = 33554432
+# 7 x 188, so a lost datagram destroys whole transport stream packets
+# instead of straddling two of them
+STREAM_UDP_PACKET_SIZE = 1316
+STREAM_UDP_FIFO_SIZE = 5000000
+# how many ports after the preferred one to try before letting the system
+# choose. A predictable port is worth a few extra probes
+STREAM_PORT_SCAN = 10
 Platform_lyr = parser['LAYERS']['Platform_lyr']
 Footprint_lyr = parser['LAYERS']['Footprint_lyr']
 FrameCenter_lyr = parser['LAYERS']['FrameCenter_lyr']
-dtm_buffer = int(parser['GENERAL']['DTM_buffer_size'])
-ffmpegConf = parser['GENERAL']['ffmpeg']
+# dtm_buffer_size is no longer read: the model is sampled through the
+# raster provider instead of being loaded as a window around one packet
+# steepest ground the line of sight walk is allowed to assume, rise over
+# run. It only has to be an upper bound: too generous costs a few extra
+# samples, too small lets the walk step over a thin ridge and report the
+# far side of the mountain. 12 is about 85 degrees.
+dtm_max_slope = parser.getfloat('GENERAL', 'dtm_max_slope', fallback=12.0)
+# how far the line of sight is followed, in metres
+dtm_max_range = parser.getfloat('GENERAL', 'dtm_max_range', fallback=60000.0)
+# a hole in the model, a lake mask or a void, is stepped over one pixel at
+# a time. Past this much of it the ray has left the model for good
+DTM_MAX_HOLE_METRES = 5000.0
+# a ray running almost parallel to the ground can take very small steps
+# for a long way. Past this it is grazing rather than hitting
+DTM_MAX_ITERATIONS = 4000
+# optional: it is overwritten with the platform path just below, so a
+# settings.ini without it must not stop the module importing
+ffmpegConf = parser.get('GENERAL', 'ffmpeg', fallback='')
 
 windows = platform.system() == 'Windows'
 
@@ -115,10 +149,23 @@ sensorTrueAltitude = [None] * 13
 
 centerMode = 0
 
-dtm_data = []
-dtm_transform = None
-dtm_colLowerBound = 0
-dtm_rowLowerBound = 0
+WGS84_CRS = QgsCoordinateReferenceSystem("EPSG:4326")
+
+# The elevation model is not read into memory. Heights come from the
+# raster provider, which keeps its own block cache, so there is no window
+# and therefore no bounds for the walk to fall outside of.
+dtm_layer = None
+dtm_provider = None
+dtm_to_layer = None
+dtm_from_layer = None
+# layer units per metre on each axis, so the walk can step in metres
+# whatever the model is projected in
+dtm_metres_per_unit = (1.0, 1.0)
+# smallest advance, and the clearance under which the ray counts as
+# touching. Both are derived from the pixel size in initElevationModel
+dtm_step_floor = 2.5
+dtm_graze = 1.0
+dtm_pixel_metres = 10.0
 
 tLastLon = 0.0
 tLastLat = 0.0
@@ -134,57 +181,52 @@ else:
 
 
 class NonBlockingStreamReader:
+    ''' Read the splitter metadata pipe into a time indexed ring buffer.
 
-    def __init__(self, process):
+        The pipe carries no packet boundaries of its own, so KlvFramer finds
+        them; see QgsFmvStreamBuffer for why the previous 16 byte scan could
+        not work. The buffer is bounded: if the player stalls, packets are
+        dropped rather than accumulated, which keeps memory flat and stops
+        the metadata drifting further and further behind the picture.
+    '''
+
+    def __init__(self, process, buffer_size=None):
         self._p = process
-        self._q = Queue()
         self.stopped = False
+        self.framer = KlvFramer()
+        self.buffer = TimedPacketBuffer(maxlen=buffer_size or stream_buffer_size)
+        self.packetCount = 0
 
-        def _populateQueue(process, queue):
-            '''
-            Collect lines from metadata stream and put them in 'queue'.
-            '''
-            packetsPerQueueElement = 1
-            metaFound = 0
-            data = b''
+        def _populateBuffer():
+            reader = process.stdout
+            # read1() returns as soon as anything is available, read() would
+            # block until the full request is met and add latency
+            readChunk = getattr(reader, 'read1', None) or reader.read
             while self._p.poll() is None and not self.stopped:
-                line = process.stdout.read(16)
-                if line:
-                    # find starting block for misb0601 or misbeg0104
-                    if line == b'\x06\x0e+4\x02\x0b\x01\x01\x0e\x01\x03\x01\x01\x00\x00\x00' or line == b'\x06\x0e+4\x02\x01\x01\x01\x0e\x01\x01\x02\x01\x01\x00\x00':
-                        #qgsu.showUserAndLogMessage("", "metaFound" + str(metaFound), onlyLog=True)
-                        metaFound = metaFound + 1
-
-                    # feed the current packet
-                    if metaFound <= packetsPerQueueElement:
-                        #qgsu.showUserAndLogMessage("", "feeding packet" + str(metaFound), onlyLog=True)
-                        data = data + line
-                    # add to queue and start a new one
-                    else:
-                        #qgsu.showUserAndLogMessage("", "Put to queue and start over" + repr(data), onlyLog=True)
-                        queue.put(data)
-                        data = line
-                        metaFound = 1
-
-                # End of stream
-                else:
-                    qgsu.showUserAndLogMessage("", "reader got end of stream.", onlyLog=True)
+                try:
+                    chunk = readChunk(65536)
+                except (ValueError, OSError):
                     break
+                if not chunk:
+                    qgsu.showUserAndLogMessage('', 'reader got end of stream.', onlyLog=True)
+                    break
+                for packet in self.framer.feed(chunk):
+                    self.buffer.put(packet)
+                    self.packetCount += 1
 
             if self.stopped:
-                qgsu.showUserAndLogMessage("", "NonBlockingStreamReader ended because stop signal received.", onlyLog=True)
+                qgsu.showUserAndLogMessage('', 'NonBlockingStreamReader ended because stop signal received.', onlyLog=True)
 
-        self._t = threading.Thread(target=_populateQueue, args=(self._p, self._q))
+        self._t = threading.Thread(target=_populateBuffer)
         self._t.daemon = True
-        self._t.start()  # start collecting lines from the stream
+        self._t.start()
 
-    def readline(self, timeout=None):
-        try:
-            return self._q.get(block=timeout is not None,
-                               timeout=timeout)
-        except Empty:
-            return None
-            # return "---"
+    def get(self, latency=0.0):
+        ''' Packet matching what is on screen, latency seconds ago. '''
+        return self.buffer.get(latency)
+
+    def size(self):
+        return self.buffer.size()
 
 
 # Splitter class for streaming.
@@ -198,6 +240,7 @@ class Splitter(threading.Thread):
         self.cmds = cmds
         self.type = type
         self.p = None
+        self.nbsr = None
         threading.Thread.__init__(self)
 
     def run(self):
@@ -223,34 +266,164 @@ class Splitter(threading.Thread):
         qgsu.showUserAndLogMessage("", "Splitter thread ended.", onlyLog=True)
 
 
-class StreamMetaReader():
+def _pickFreeUdpPort(preferred):
+    ''' A local port the player will be able to listen on.
 
-    def __init__(self, video_path):
+        The tee only sends, and a sender never binds its destination, so
+        what is tested here is whether QMediaPlayer will be able to receive
+        on it. Neighbouring ports are tried before giving up to the system:
+        an OS assigned port works, since both the tee and the player take it
+        from the same destPort, but it cannot be predicted, firewalled or
+        recognised in a log.
+
+        Windows refuses more than ports that are in use. Hyper-V, WSL and
+        WinNAT reserve whole blocks, and binding inside one of those fails
+        with a permission error rather than an address in use, so the reason
+        is logged instead of being flattened to busy.
+    '''
+    refusal = ''
+    for candidate in list(range(preferred, preferred + STREAM_PORT_SCAN)) + [0]:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.bind(('127.0.0.1', candidate))
+            port = probe.getsockname()[1]
+            if candidate != preferred:
+                qgsu.showUserAndLogMessage(
+                    '', 'Stream: local port ' + str(preferred) + ' refused (' +
+                    refusal + '), listening on ' + str(port) + ' instead.',
+                    onlyLog=True)
+            return port
+        except OSError as e:
+            if not refusal:
+                refusal = str(e)
+            continue
+        finally:
+            probe.close()
+    return preferred
+
+
+class StreamMetaReader():
+    ''' Live metadata reader (beta).
+
+        One ffmpeg subscribes to the source once and tees it: audio and video
+        are copied to a local port for QMediaPlayer, the data track goes to a
+        pipe read here. A live source cannot be opened twice, so the split has
+        to happen upstream of both consumers.
+    '''
+
+    def __init__(self, video_path, latency_ms=None):
         self.split = video_path.split(":")
         self.srcProtocol = self.split[0]
-        self.srcHost = self.split[1]
+        self.srcHost = self.split[1].lstrip('/')
         self.srcPort = int(self.split[2])
-        self.destPort = self.srcPort + 10
-        self.connection = self.srcProtocol + ':' + self.srcHost + ':' + str(self.srcPort)
-        self.connectionDest = self.srcProtocol + '://127.0.0.1:' + str(self.destPort)
-        self.splitter = Splitter(['-i', self.connection, '-c', 'copy', '-map', '0:v?', '-map', '0:a?', '-f', 'rtp_mpegts', self.connectionDest, '-map', '0:d?', '-f', 'data', '-'])
+        self.destPort = _pickFreeUdpPort(self.srcPort + 10)
+        self.latency = max(0.0, (stream_latency_ms if latency_ms is None else latency_ms) / 1000.0)
+        # kept so the player can treat this like a BufferedMetaReader
+        self.klv_index = 0
+        self.disposed = False
+        self.connection = (self.srcProtocol + '://' + self.srcHost + ':' +
+                           str(self.srcPort) + '?buffer_size=' + str(STREAM_SOCKET_BUFFER))
+        self.connectionDest = self._destUrl()
+        self._startSplitter()
+
+    def _destUrl(self):
+        ''' Local leg the tee writes the picture to. '''
+        return ('udp://127.0.0.1:' + str(self.destPort) +
+                '?pkt_size=' + str(STREAM_UDP_PACKET_SIZE) +
+                '&buffer_size=' + str(STREAM_SOCKET_BUFFER))
+
+    def playerUrl(self):
+        ''' URL QMediaPlayer has to open to see this stream.
+
+            Never the source address: the tee already holds that, and a
+            live source cannot be subscribed to twice.
+        '''
+        return ('udp://127.0.0.1:' + str(self.destPort) +
+                '?buffer_size=' + str(STREAM_SOCKET_BUFFER) +
+                '&fifo_size=' + str(STREAM_UDP_FIFO_SIZE) +
+                '&overrun_nonfatal=1')
+
+    def _startSplitter(self):
+        ''' Spawn the ffmpeg that tees the source.
+
+            The local leg is plain MPEG-TS over UDP, not rtp_mpegts. RTP
+            makes the reader hold packets in a resequencing queue and drop
+            the whole queue whenever its delay is reached, which on a
+            localhost hop cost about a third of the video packets in
+            testing against roughly a twentieth over plain UDP. Nothing is
+            re-encoded either way, -c copy passes the original bitstream
+            through untouched.
+        '''
+        self.connectionDest = self._destUrl()
+        self.splitter = Splitter(['-i', self.connection, '-c', 'copy', '-map', '0:v?', '-map', '0:a?', '-f', 'mpegts', self.connectionDest, '-map', '0:d?', '-f', 'data', '-'])
         self.splitter.start()
-        qgsu.showUserAndLogMessage("", "Splitter started.", onlyLog=True)
+        qgsu.showUserAndLogMessage("", "Splitter started on port " + str(self.destPort) + ".", onlyLog=True)
+
+    def isRunning(self):
+        ''' False only when the tee is known to be down. '''
+        if self.disposed:
+            return False
+        reader = self._reader()
+        if reader is not None and reader.stopped:
+            return False
+        process = getattr(self.splitter, 'p', None)
+        if process is None:
+            # the splitter thread has not spawned ffmpeg yet
+            return True
+        return process.poll() is None
+
+    def ensureRunning(self):
+        ''' Bring the tee back up after the player was closed.
+
+            Closing the player disposes this reader, which kills ffmpeg.
+            The manager keeps the row, so reopening it has to restart the
+            splitter or the player would sit on a silent local port and
+            show nothing but black.
+
+            Returns True when a restart happened.
+        '''
+        if self.isRunning():
+            return False
+        # the port we used is ours again now that ffmpeg is gone
+        self.destPort = _pickFreeUdpPort(self.destPort)
+        self.disposed = False
+        self._startSplitter()
+        return True
+
+    def setLatency(self, latency_ms):
+        ''' Tune how far back in the buffer the metadata is taken. '''
+        self.latency = max(0.0, latency_ms / 1000.0)
+
+    def _reader(self):
+        # the splitter builds it on its own thread, it may not exist yet
+        return getattr(getattr(self, 'splitter', None), 'nbsr', None)
 
     def getSize(self):
-        return self.splitter.nbsr._q.qsize()
+        reader = self._reader()
+        return reader.size() if reader is not None else 0
 
-    def get(self, _):
-        #qgsu.showUserAndLogMessage("", "Get called on Streamreader.", onlyLog=True)
-        return self.splitter.nbsr.readline()
+    def bufferSpan(self):
+        ''' Seconds of metadata currently held, for diagnostics. '''
+        reader = self._reader()
+        return reader.buffer.span() if reader is not None else 0.0
+
+    def get(self, _t=None):
+        reader = self._reader()
+        if reader is None:
+            return None
+        return reader.get(self.latency)
 
     def dispose(self):
-        #qgsu.showUserAndLogMessage("", "Dispose called on StreamMetaReader.", onlyLog=True)
-        self.splitter.nbsr.stopped = True
+        self.disposed = True
+        reader = self._reader()
+        if reader is not None:
+            reader.stopped = True
+            reader.buffer.clear()
         # kill the process if open, releases source port
         try:
-            self.splitter.p.kill()
-            qgsu.showUserAndLogMessage("", "Splitter Popen process killed.", onlyLog=True)
+            if self.splitter.p is not None:
+                self.splitter.p.kill()
+                qgsu.showUserAndLogMessage("", "Splitter Popen process killed.", onlyLog=True)
         except OSError:
             # can't kill a dead proc
             pass
@@ -389,7 +562,14 @@ class BufferedMetaReader():
         return value
 
     def dispose(self):
-        pass
+        ''' Kill the ffmpeg processes still buffering for this video. '''
+        for thread in list(self._meta.values()):
+            try:
+                if thread.p is not None and thread.p.poll() is None:
+                    thread.p.kill()
+            except Exception:
+                pass
+        self._meta = {}
 
 
 class callBackMetadataThread(threading.Thread):
@@ -398,7 +578,10 @@ class callBackMetadataThread(threading.Thread):
     def __init__(self, cmds = []):
         self.cmds = cmds
         self.p = None
+        self.stdout = b''
         threading.Thread.__init__(self)
+        # never keep the host alive: these threads sit in communicate()
+        self.daemon = True
     
     def setCmds(self, cmds):
         self.cmds = cmds
@@ -408,6 +591,7 @@ class callBackMetadataThread(threading.Thread):
         self.p = _spawn(self.cmds)
         # print (self.cmds)
         self.stdout, _ = self.p.communicate()
+        #qgsu.showUserAndLogMessage("", "callBackMetadataThread run: stdout:" + str(self.stdout), onlyLog=True)  
         # print (self.stdout)
         # print (_)
         
@@ -489,7 +673,11 @@ def getKlvStreamIndex(videoPath, islocal=False):
                 continue
             else:
                 #look if stream has valid klv data
-                if b'\x06\x0e+4\x02\x0b\x01\x01\x0e\x01\x03\x01\x01\x00\x00\x00' in stdout_data or b'\x06\x0e+4\x02\x01\x01\x01\x0e\x01\x01\x02\x01\x01\x00\x00' in stdout_data:
+                if (b'\x06\x0e+4\x02\x0b\x01\x01\x0e\x01\x03\x01\x01\x00\x00\x00' in stdout_data
+                        or b'\x06\x0e+4\x02\x01\x01\x01\x0e\x01\x01\x02\x01\x01\x00\x00' in stdout_data
+                        # legacy pre 0601 streams carry no wrapping set key to
+                        # look for, so they are recognised on their layout
+                        or isFlatUniversalStream(stdout_data, StreamParser.parsers)):
                     return i
                 else:
                     qgsu.showUserAndLogMessage("", "skipping stream " + str(i) + " not a klv stream.", onlyLog=True)
@@ -497,6 +685,50 @@ def getKlvStreamIndex(videoPath, islocal=False):
                 
         qgsu.showUserAndLogMessage("Error interpreting klv data, metadata cannot be read.", "the parser did not recognize KLV data", level=QGis.Warning)
         return 0
+
+def parseReverseGeocoding(payload):
+    ''' Address string out of a reverse geocoding answer, '-' if unusable. '''
+    try:
+        data = json.loads(payload)
+        address = data.get("address", {})
+        state = address.get("state")
+        for key in ("village", "town"):
+            if key in address and state:
+                return address[key] + ", " + state
+        return data.get("display_name", "-")
+    except Exception:
+        return "-"
+
+
+def requestReverseGeocoding(lat, lon, onResult):
+    ''' Ask the geocoding service for an address, without blocking.
+
+        onResult(text) is called later from the event loop. Returns the reply
+        so the caller can abort it, or None when nothing was sent.
+    '''
+    if not Reverse_geocoding_url or lat is None or lon is None:
+        return None
+
+    try:
+        url = QUrl(Reverse_geocoding_url.format(str(lat), str(lon)))
+        reply = QgsNetworkAccessManager.instance().get(QNetworkRequest(url))
+    except Exception:
+        qgsu.showUserAndLogMessage(
+            "", "requestReverseGeocoding: request could not be sent.", onlyLog=True)
+        return None
+
+    def finished():
+        try:
+            onResult(parseReverseGeocoding(bytes(reply.readAll().data())))
+        except Exception:
+            qgsu.showUserAndLogMessage(
+                "", "requestReverseGeocoding: failed to get address from reverse geocoding service.", onlyLog=True)
+        finally:
+            reply.deleteLater()
+
+    reply.finished.connect(finished)
+    return reply
+
 
 def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0):
     """ Get basic location info about the video """
@@ -533,34 +765,10 @@ def getVideoLocationInfo(videoPath, islocal=False, klv_folder=None, klv_index=0)
                 centerLat = packet.SensorLatitude
                 centerLon = packet.SensorLongitude
             
+            # The reverse geocoding used to run here behind a nested
+            # QEventLoop, which re-entered the event loop while the manager
+            # row was still being built. See requestReverseGeocoding().
             loc = "-"
-
-            if Reverse_geocoding_url != "":
-                try:
-                    url = QUrl(Reverse_geocoding_url.format(
-                        str(centerLat), str(centerLon)))
-                    request = QNetworkRequest(url)
-                    reply = QgsNetworkAccessManager.instance().get(request)
-                    loop = QEventLoop()
-                    reply.finished.connect(loop.quit)
-                    loop.exec()
-                    reply.finished.disconnect(loop.quit)
-                    loop = None
-                    result = reply.readAll()
-                    data = json.loads(result.data())
-
-                    if "village" in data["address"] and "state" in data["address"]:
-                        loc = data["address"]["village"] + \
-                            ", " + data["address"]["state"]
-                    elif "town" in data["address"] and "state" in data["address"]:
-                        loc = data["address"]["town"] + \
-                            ", " + data["address"]["state"]
-                    else:
-                        loc = data["display_name"]
-
-                except Exception:
-                    qgsu.showUserAndLogMessage(
-                        "", "getVideoLocationInfo: failed to get address from reverse geocoding service.", onlyLog=True)
 
             location = [centerLat, centerLon, loc]
 
@@ -691,7 +899,7 @@ def convertQImageToMat(img, cn=3):
     '''  Converts a QImage into an opencv MAT format  '''
     img = img.convertToFormat(QImage.Format.Format_RGB888)
     ptr = img.bits()
-    ptr.setsize(img.byteCount())
+    ptr.setsize(img.sizeInBytes())
     return np.array(ptr).reshape(img.height(), img.width(), cn)
 
 
@@ -808,10 +1016,7 @@ def GetGCPGeoTransform():
 
 def hasElevationModel():
     ''' Check if DEM is loaded '''
-    if dtm_data is not None and len(dtm_data) > 0:
-        return True
-    else:
-        return False
+    return dtm_provider is not None
 
 
 def SetImageSize(w, h):
@@ -861,49 +1066,102 @@ def _spawn(cmds, t="ffmpeg"):
 
 def ResetData():
     ''' Reset Global Data '''
-    global dtm_data, tLastLon, tLastLat
+    global tLastLon, tLastLat
     
     
     SetcrtSensorSrc()
     SetcrtPltTailNum()
-    # The DTM is not associated with every video.If we reset it, you won't see it when you change videos
-    # dtm_data = []
+    # the elevation model is not cleared here: it belongs to the project,
+    # not to one video, and initElevationModel rebinds it on every open
     tLastLon = 0.0
     tLastLat = 0.0
     RemoveAllDrawings()
 
 
-def initElevationModel(frameCenterLat, frameCenterLon, dtm_path):
-    ''' Start DEM transformation and extract data for set Z value in points '''
-    global dtm_data, dtm_transform, dtm_colLowerBound, dtm_rowLowerBound
+def _heightmapFromProject():
+    ''' Raster Kadas is set to use as heightmap, or None.
 
-    # Initialize the dtm once, based on a zone arouind the target
-    qgsu.showUserAndLogMessage("", "Initializing DTM.", onlyLog=True)
-    dataset = gdal.Open(dtm_path)
-    if dataset is None:
-        qgsu.showUserAndLogMessage(QCoreApplication.translate(
-            "QgsFmvUtils", "Failed to read DTM file. "), level=QGis.Warning)
+        Kadas stores the choice as a plain project entry, written when the
+        user picks the raster in the layer tree. readEntry() answers
+        (value, ok) in Python where the C++ takes an out parameter.
+    '''
+    try:
+        layerId, found = QgsProject.instance().readEntry("Heightmap", "layer")
+    except Exception:
+        return None
+    if not found or not layerId:
+        return None
+    layer = QgsProject.instance().mapLayer(layerId)
+    if not isinstance(layer, QgsRasterLayer) or not layer.isValid():
+        return None
+    return layer
+
+
+def _heightmapFromSettings(dtm_path):
+    ''' The dtm_file of settings.ini, for a project with no heightmap. '''
+    if not dtm_path or not os.path.exists(dtm_path):
+        return None
+    layer = QgsRasterLayer(dtm_path, "FMV elevation model")
+    return layer if layer.isValid() else None
+
+
+def initElevationModel(frameCenterLat, frameCenterLon, dtm_path):
+    ''' Bind the elevation model used to drop the line of sight on ground.
+
+        The heightmap configured in the Kadas project wins: it is already
+        loaded, the user chose it, and it can be in any CRS. The path in
+        settings.ini is the fallback for a project that has none.
+
+        Nothing is read into memory. The old code loaded a square window
+        around the first packet, which put the model in the wrong place
+        whenever that packet was bad, and silently ran out of data as soon
+        as the aircraft left it.
+    '''
+    global dtm_layer, dtm_provider, dtm_to_layer, dtm_from_layer
+    global dtm_metres_per_unit, dtm_step_floor, dtm_graze, dtm_pixel_metres
+
+    layer = _heightmapFromProject()
+    origin = "the Kadas project heightmap"
+    if layer is None:
+        layer = _heightmapFromSettings(dtm_path)
+        origin = "dtm_file in settings.ini"
+    if layer is None:
+        dtm_layer = None
+        dtm_provider = None
+        qgsu.showUserAndLogMessage("", "No elevation model: no project heightmap and no readable dtm_file.", onlyLog=True)
         return
-    band = dataset.GetRasterBand(1)
-    dtm_transform = dataset.GetGeoTransform()
-    xOrigin = dtm_transform[0]
-    yOrigin = dtm_transform[3]
-    pixelWidth = dtm_transform[1]
-    pixelHeight = -dtm_transform[5]
-    cIndex = int((frameCenterLon - xOrigin) / pixelWidth)
-    rIndex = int((frameCenterLat - yOrigin) / (-pixelHeight))
-    dtm_colLowerBound = cIndex - dtm_buffer
-    dtm_rowLowerBound = rIndex - dtm_buffer
-    if dtm_colLowerBound < 0 or dtm_rowLowerBound < 0:
-        qgsu.showUserAndLogMessage(QCoreApplication.translate(
-            "QgsFmvUtils", "There is no DTM for theses bounds. Check/increase DTM_buffer_size in settings.ini"), level=QGis.Warning)
+
+    crs = layer.crs()
+    project = QgsProject.instance()
+    dtm_layer = layer
+    dtm_provider = layer.dataProvider()
+    dtm_to_layer = QgsCoordinateTransform(WGS84_CRS, crs, project)
+    dtm_from_layer = QgsCoordinateTransform(crs, WGS84_CRS, project)
+
+    if crs.isGeographic():
+        lat = frameCenterLat if frameCenterLat is not None else 0.0
+        dtm_metres_per_unit = (max(1.0, 111320.0 * abs(cos(radians(lat)))),
+                               111320.0)
     else:
-        # qgsu.showUserAndLogMessage("UpdateLayers: ", " dtm_colLowerBound:"+str(dtm_colLowerBound)+" dtm_rowLowerBound:"+str(dtm_rowLowerBound)+" dtm_buffer:"+str(dtm_buffer), onlyLog=True)
-        dtm_data = band.ReadAsArray(
-            dtm_colLowerBound, dtm_rowLowerBound, 2 * dtm_buffer, 2 * dtm_buffer)
-        if dtm_data is not None:
-            qgsu.showUserAndLogMessage(
-                "", "DTM successfully initialized, len: " + str(len(dtm_data)), onlyLog=True)
+        dtm_metres_per_unit = (1.0, 1.0)
+
+    pixel = max(abs(layer.rasterUnitsPerPixelX()),
+                abs(layer.rasterUnitsPerPixelY()))
+    pixelMetres = pixel * dtm_metres_per_unit[1]
+    # The floor keeps the walk moving when the safe advance goes to zero,
+    # but it is also the one place the safety bound leaks: a step longer
+    # than clearance / closing can pass over a dip. Keeping it to a quarter
+    # of a pixel bounds that leak, and a ray closer to the ground than
+    # dtm_graze is treated as touching it, which is where a model of this
+    # resolution stops being able to tell anyway.
+    dtm_step_floor = max(0.5, 0.25 * pixelMetres)
+    dtm_graze = max(0.5, 0.1 * pixelMetres)
+    dtm_pixel_metres = max(1.0, pixelMetres)
+
+    qgsu.showUserAndLogMessage("", "Elevation model: " + layer.name() +
+                               " (" + crs.authid() + ") from " + origin +
+                               ", pixel " + str(round(pixelMetres, 1)) +
+                               " m.", onlyLog=True)
 
 
 def UpdateLayers(packet, parent=None, mosaic=False, group=None):
@@ -1175,7 +1433,7 @@ def CornerEstimationWithOffsets(packet):
 
 def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, FOV=None, others=None):
     ''' Corner estimation without Offsets '''
-    global geotransform
+    global geotransform, geotransform_affine
         
     try:
         if packet is not None:
@@ -1303,7 +1561,9 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
             geotransform = None
             return True
         
-        if hasElevationModel() and value8 > max_vert_angle:
+        #qgsu.showUserAndLogMessage("", "value8: {}".format(value8), onlyLog=True)
+        
+        if hasElevationModel() and value8 < max_vert_angle:
             cornerPointUL = GetLine3DIntersectionWithDEM(
                 GetSensor(), cornerPointUL)
             cornerPointUR = GetLine3DIntersectionWithDEM(
@@ -1319,16 +1579,24 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
         if sensor is not None:
             return cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL
         
-        
-        UpdateFootPrintData(packet,
-                        cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, hasElevationModel())
+        if value8 < max_vert_angle:
+            UpdateFootPrintData(packet,
+                            cornerPointUL, cornerPointUR, cornerPointLR, cornerPointLL, hasElevationModel())
 
-        UpdateBeamsData(packet, cornerPointUL, cornerPointUR,
-                    cornerPointLR, cornerPointLL, hasElevationModel())
+            UpdateBeamsData(packet, cornerPointUL, cornerPointUR,
+                        cornerPointLR, cornerPointLL, hasElevationModel())
 
-        SetGCPsToGeoTransform(cornerPointUL, cornerPointUR,
-                              cornerPointLR, cornerPointLL,
-                              frameCenterPoint[1], frameCenterPoint[0], hasElevationModel())
+            SetGCPsToGeoTransform(cornerPointUL, cornerPointUR,
+                                  cornerPointLR, cornerPointLL,
+                                  frameCenterPoint[1], frameCenterPoint[0], hasElevationModel())
+        else:
+            # too close to the horizon: the corner estimation diverges, so the
+            # homography built from it is meaningless. Dropping it is what
+            # switches off the cursor coordinates and the drawing tools.
+            HideFootPrintData()
+            HideBeamsData()
+            geotransform = None
+            geotransform_affine = None
 
     except Exception as e:
         qgsu.showUserAndLogMessage(QCoreApplication.translate(
@@ -1337,29 +1605,65 @@ def CornerEstimationWithoutOffsets(packet=None, sensor=None, frameCenter=None, F
 
     return True
 
-def GetDemAltAt(lon, lat):
-    alt = 0
-   
-    xOrigin = dtm_transform[0]
-    yOrigin = dtm_transform[3]
-    pixelWidth = dtm_transform[1]
-    pixelHeight = -dtm_transform[5]
-    
-    col = int((lon - xOrigin) / pixelWidth)
-    row = int((yOrigin - lat) / pixelHeight)
+def _sampleLayerXY(x, y):
+    ''' Ground height at a point already in the model own CRS. '''
+    if dtm_provider is None:
+        return None
     try:
-        alt = dtm_data[row - dtm_rowLowerBound][col - dtm_colLowerBound]
-    except:
-        pass
-        #qgsu.showUserAndLogMessage(
-        #        "", "GetDemAltAt: Point is out of DEM.", onlyLog=True)
-        
-    return alt
+        value, ok = dtm_provider.sample(QgsPointXY(x, y), 1)
+    except Exception:
+        return None
+    # sample answers not ok outside the model, and nan is never a height
+    if not ok or value != value:
+        return None
+    return value
+
+
+def GetDemAltAt(lon, lat):
+    ''' Ground height below a WGS84 position, 0 when it is not known. '''
+    if dtm_provider is None:
+        return 0
+    try:
+        point = dtm_to_layer.transform(QgsPointXY(lon, lat))
+    except Exception:
+        return 0
+    alt = _sampleLayerXY(point.x(), point.y())
+    return 0 if alt is None else alt
+
+def _bisectGround(sx, sy, ux, uy, ua, sensorAlt, lo, hi, rounds=12):
+    ''' Narrow the interval where the ray crossed the ground.
+
+        lo is known to be clear of the ground and hi touching it. Twelve
+        take an interval of a few hundred metres well under one pixel.
+    '''
+    mx, my = dtm_metres_per_unit
+    for _ in range(rounds):
+        mid = 0.5 * (lo + hi)
+        ground = _sampleLayerXY(sx + mid * ux / mx, sy + mid * uy / my)
+        if ground is None:
+            break
+        if sensorAlt + mid * ua - ground <= dtm_graze:
+            hi = mid
+        else:
+            lo = mid
+    return hi
+
 
 def GetLine3DIntersectionWithDEM(sensorPt, targetPt):
-    ''' Obtain height for points,intersecting with DEM '''
-    pt = []
+    ''' First point where the line of sight meets the ground.
 
+        Walked from the sensor towards the target and never the other way:
+        a line can cross two ridges and only the first one is visible, the
+        second one is the back of the mountain.
+
+        The step is not fixed. With c the clearance above the ground at the
+        current sample, the ray descending at |ua| per metre travelled and
+        the ground rising at most dtm_max_slope per horizontal metre, the
+        gap cannot close before c / (|ua| + slope * ph). Advancing by that
+        much takes long strides while the ray is still high up and cannot
+        step over a ridge however thin, which a fixed coarse step does. The
+        interval that changed sign is then bisected.
+    '''
     sensorLat = sensorPt[0]
     sensorLon = sensorPt[1]
     sensorAlt = sensorPt[2]
@@ -1369,52 +1673,83 @@ def GetLine3DIntersectionWithDEM(sensorPt, targetPt):
         targetAlt = targetPt[2]
     except Exception:
         targetAlt = GetFrameCenter()[2]
-    
-    distance = sphere.distance([sensorLat, sensorLon], [targetLat, targetLon])
-    distance = sqrt(distance ** 2 + (targetAlt - sensorAlt) ** 2)
-    dLat = (targetLat - sensorLat) / distance
-    dLon = (targetLon - sensorLon) / distance
-    dAlt = (targetAlt - sensorAlt) / distance
+    if targetAlt is None:
+        targetAlt = 0.0
 
-    xOrigin = dtm_transform[0]
-    yOrigin = dtm_transform[3]
-    pixelWidth = dtm_transform[1]
-    pixelHeight = -dtm_transform[5]
+    # what the caller gets when the ground cannot be found: the target as
+    # the metadata reported it
+    fallback = [targetLat, targetLon, targetAlt]
+    if dtm_provider is None or sensorAlt is None:
+        return fallback
+    if None in (sensorLat, sensorLon, targetLat, targetLon):
+        return fallback
 
-    pixelWidthMeter = pixelWidth * (pi / 180.0) * 6378137.0
+    try:
+        start = dtm_to_layer.transform(QgsPointXY(sensorLon, sensorLat))
+        aim = dtm_to_layer.transform(QgsPointXY(targetLon, targetLat))
+    except Exception:
+        return fallback
 
-    # start at k = sensor point, then test every pixel a point on the 3D line
-    # until we cross the dtm (diffAlt >= 0).
+    mx, my = dtm_metres_per_unit
+    dx = (aim.x() - start.x()) * mx
+    dy = (aim.y() - start.y()) * my
+    da = targetAlt - sensorAlt
+    slant = sqrt(dx * dx + dy * dy + da * da)
+    if slant <= 0.0:
+        return fallback
 
-    diffAlt = -1
-    for k in range(0, int(dtm_buffer * pixelWidthMeter), int(pixelWidthMeter)):
-        point = [sensorLon + k * dLon, sensorLat +
-                 k * dLat, sensorAlt + k * dAlt]
+    ux, uy, ua = dx / slant, dy / slant, da / slant
+    ph = sqrt(ux * ux + uy * uy)
+    closing = abs(ua) + dtm_max_slope * ph
+    if closing <= 0.0:
+        return fallback
 
-        col = int((point[0] - xOrigin) / pixelWidth)
-        row = int((yOrigin - point[1]) / pixelHeight)
-        try:
-            diffAlt = point[2] - dtm_data[row -
-                                          dtm_rowLowerBound][col - dtm_colLowerBound]
+    sx, sy = start.x(), start.y()
+    k = 0.0
+    previous = 0.0
+    hole = 0.0
+    # a hit only counts once the ray has actually been above the ground
+    airborne = False
+    iterations = 0
+    while k <= dtm_max_range:
+        iterations += 1
+        if iterations > DTM_MAX_ITERATIONS:
+            return fallback
+        ground = _sampleLayerXY(sx + k * ux / mx, sy + k * uy / my)
+        if ground is None:
+            # no data here: cross it a pixel at a time, nothing can be
+            # hidden in a cell the model does not describe
+            hole += dtm_pixel_metres
+            if hole > DTM_MAX_HOLE_METRES:
+                return fallback
+            previous = k
+            k += dtm_pixel_metres
+            continue
+        hole = 0.0
+        clearance = sensorAlt + k * ua - ground
+        if clearance <= dtm_graze:
+            if not airborne:
+                # the ray has not been above the ground yet, so this is a
+                # sensor position under the terrain, bad metadata rather
+                # than an intersection. Walk on until it clears the ground
+                previous = k
+                k += dtm_step_floor
+                continue
+            hit = _bisectGround(sx, sy, ux, uy, ua, sensorAlt, previous, k)
+            try:
+                back = dtm_from_layer.transform(
+                    QgsPointXY(sx + hit * ux / mx, sy + hit * uy / my))
+            except Exception:
+                return fallback
+            return [back.y(), back.x(), sensorAlt + hit * ua]
+        airborne = True
+        step = clearance / closing
+        if step < dtm_step_floor:
+            step = dtm_step_floor
+        previous = k
+        k += step
 
-        except Exception:
-            qgsu.showUserAndLogMessage(
-                "", "DEM point not found after all iterations.", onlyLog=True)
-
-            break
-        if diffAlt <= 0:
-            pt = [point[1], point[0], point[2]]
-            break
-
-    if not pt:
-        #qgsu.showUserAndLogMessage(
-        #    "", "DEM point not found, last computed delta high: " + str(diffAlt), onlyLog=True)
-        # If fail,Return original point and add target elevation
-        l = list(targetPt)
-        l.append(targetAlt)
-        return l
-
-    return pt
+    return fallback
 
 
 def GetLine3DIntersectionWithPlane(sensorPt, demPt, planeHeight):

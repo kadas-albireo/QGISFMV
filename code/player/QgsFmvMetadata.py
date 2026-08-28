@@ -2,6 +2,7 @@
 import csv
 from qgis.PyQt.QtCore import Qt, QCoreApplication
 from qgis.PyQt.QtGui import (QFont,
+                             QPageSize,
                              QTextCursor,
                              QTextDocument,
                              QTextBlockFormat,
@@ -9,8 +10,13 @@ from qgis.PyQt.QtGui import (QFont,
                              QTextTableFormat,
                              QBrush,
                              QColor)
+from qgis.PyQt.QtGui import QGuiApplication, QKeySequence, QShortcut
 from qgis.PyQt.QtPrintSupport import QPrinter
-from qgis.PyQt.QtWidgets import QDockWidget
+from qgis.PyQt.QtWidgets import (QAbstractItemView,
+                                 QDockWidget,
+                                 QLineEdit,
+                                 QStyle,
+                                 QStyledItemDelegate)
 from qgis.core import Qgis as QGis, QgsTask, QgsApplication
 
 from qgis.PyQt.QtGui import QTextFormat
@@ -25,6 +31,34 @@ except ImportError:
     None
 
 
+class MetadataValueDelegate(QStyledItemDelegate):
+    ''' Read only cells that can still be selected and copied.
+
+        The metadata table is a report, so the hover highlight drawn by the
+        native style is dropped: it only adds noise. A double click opens a
+        read only line edit instead of a real editor, which is what makes a
+        value selectable with the mouse and copyable with Ctrl+C.
+    '''
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        option.state &= ~QStyle.StateFlag.State_MouseOver
+
+    def createEditor(self, parent, option, index):
+        editor = QLineEdit(parent)
+        editor.setReadOnly(True)
+        editor.setFrame(False)
+        return editor
+
+    def setEditorData(self, editor, index):
+        editor.setText(index.data(Qt.ItemDataRole.DisplayRole) or "")
+        editor.selectAll()
+
+    def setModelData(self, editor, model, index):
+        # the table mirrors the stream, it is never written back
+        return
+
+
 class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
     """ Metadata Class Reports """
 
@@ -33,6 +67,34 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
         super().__init__()
         self.setupUi(self)
         self.player = player
+        self.setupMetadataTable()
+
+    def setupMetadataTable(self):
+        ''' Selectable and copyable cells, and no hover colour. '''
+        table = self.VManager
+        self.valueDelegate = MetadataValueDelegate(table)
+        table.setItemDelegate(self.valueDelegate)
+        table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        self.copyShortcut = QShortcut(QKeySequence.StandardKey.Copy, table)
+        self.copyShortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.copyShortcut.activated.connect(self.copySelectionToClipboard)
+
+    def copySelectionToClipboard(self):
+        ''' Copy the selected cells, tab separated, one line per row. '''
+        cells = {}
+        for index in self.VManager.selectedIndexes():
+            cells.setdefault(index.row(), {})[index.column()] = index.data(
+                Qt.ItemDataRole.DisplayRole) or ""
+        if not cells:
+            return
+        lines = []
+        for row in sorted(cells):
+            columns = cells[row]
+            lines.append("\t".join(columns[c] for c in sorted(columns)))
+        QGuiApplication.clipboard().setText("\n".join(lines))
 
     def finishedTask(self, e, result=None):
         """ Common finish task function """
@@ -95,13 +157,13 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
 
-        printer.setPageSize(QPrinter.A4)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
         printer.setOutputFileName(out)
         printer.setFullPage(True)
 
         document = QTextDocument()
         document.setDefaultFont(font_normal)
-        document.setPageSize(printer.paperSize(QPrinter.Unit.Point))
+        document.setPageSize(printer.pageLayout().pageSize().size(QPageSize.Unit.Point))
 
         cursor = QTextCursor(document)
         video_t = QCoreApplication.translate("QgsFmvMetadata", "Video : ")

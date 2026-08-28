@@ -28,8 +28,8 @@ from qgis.PyQt.QtCore import (QSettings,
                               QTranslator,
                               qVersion,
                               QThread, Qt, QUrl)
-from qgis.PyQt.QtGui import QIcon, QDesktopServices
-from qgis.PyQt.QtWidgets import QAction, QHBoxLayout, QSizePolicy, QTabWidget
+from qgis.PyQt.QtGui import QIcon, QDesktopServices, QAction
+from qgis.PyQt.QtWidgets import QHBoxLayout, QSizePolicy, QTabWidget
 from QGIS_FMV.manager.QgsManager import FmvManager
 from QGIS_FMV.utils.QgsFmvLog import log
 from qgis.PyQt.QtCore import Qt
@@ -106,9 +106,45 @@ class Fmv:
     def unload(self):
         ''' Unload Plugin '''
         qgsu.showUserAndLogMessage("", "Unloading plugin", onlyLog=True)
+        # the test server outlives its dialog on purpose, so this is the
+        # only place left to stop it before it becomes an orphan ffmpeg
+        try:
+            from QGIS_FMV.utils.QgsFmvTestServer import server
+            server.stop()
+        except Exception:
+            None
         RemoveAllDrawings()
+
+        # connected in __init__, so it would pile up one connection per load
+        try:
+            self.iface.projectWillBeClosed.disconnect(RemoveAllDrawings)
+        except Exception:
+            pass
+
+        # the manager lives inside a KadasBottomBar parented to the map
+        # canvas, so it survives the unload unless it is taken down here
+        if self._FMVManager is not None:
+            try:
+                self._FMVManager.dispose()
+            except Exception:
+                pass
+            self._FMVManager.setParent(None)
+            self._FMVManager.deleteLater()
+            self._FMVManager = None
+
+        if self.bottomBar is not None:
+            self.bottomBar.hide()
+            self.bottomBar.setParent(None)
+            self.bottomBar.deleteLater()
+            self.bottomBar = None
+
+        self.run_once = False
+
         self.iface.removeAction(self.actionFMV, self.iface.PLUGIN_MENU, self.iface.CUSTOM_TAB, "&Plugins")
-        self.iface.getRibbonWidget().currentChanged.disconnect(self.tabChanged)
+        try:
+            self.iface.getRibbonWidget().currentChanged.disconnect(self.tabChanged)
+        except Exception:
+            pass
         log.removeLogging()
 
     def About(self):

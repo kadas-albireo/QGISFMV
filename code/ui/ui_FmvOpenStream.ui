@@ -36,6 +36,11 @@
        </property>
        <item>
         <property name="text">
+         <string>UDP</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
          <string>RTP</string>
         </property>
        </item>
@@ -74,7 +79,7 @@
         <cursorShape>PointingHandCursor</cursorShape>
        </property>
        <property name="text">
-        <string>Accept</string>
+        <string>Add &amp;&amp; Close</string>
        </property>
       </widget>
      </item>
