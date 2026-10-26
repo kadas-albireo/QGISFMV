@@ -9,8 +9,8 @@ except:
     from PyQt6.QtMultimediaWidgets import QVideoWidget
 from qgis.PyQt.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel,
         QPushButton, QSizePolicy, QSlider, QStyle, QVBoxLayout, QWidget)
-from qgis.PyQt.QtWidgets import QMainWindow,QWidget, QPushButton, QAction
-from qgis.PyQt.QtGui import QIcon
+from qgis.PyQt.QtWidgets import QMainWindow,QWidget, QPushButton
+from qgis.PyQt.QtGui import QIcon, QAction
 import sys
 
 class VideoWindow(QMainWindow):
@@ -25,7 +25,7 @@ class VideoWindow(QMainWindow):
 
         self.playButton = QPushButton()
         self.playButton.setEnabled(False)
-        self.playButton.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+        self.playButton.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
         self.playButton.clicked.connect(self.play)
 
         self.positionSlider = QSlider(Qt.Orientation.Horizontal)
@@ -34,7 +34,7 @@ class VideoWindow(QMainWindow):
 
         self.errorLabel = QLabel()
         self.errorLabel.setSizePolicy(QSizePolicy.Policy.Preferred,
-                QSizePolicy.Maximum)
+                QSizePolicy.Policy.Maximum)
 
         # Create new action
         openAction = QAction(QIcon('open.png'), '&Open', self)        
@@ -89,7 +89,7 @@ class VideoWindow(QMainWindow):
 
             
     def exitCall(self):
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
 
     def play(self):
         if self.mediaPlayer.state() == QMediaPlayer.PlaybackState.PlayingState:
@@ -100,10 +100,10 @@ class VideoWindow(QMainWindow):
     def playbackStateChanged(self, state):
         if self.mediaPlayer.state() == QMediaPlayer.PlaybackState.PlayingState:
             self.playButton.setIcon(
-                    self.style().standardIcon(QStyle.SP_MediaPause))
+                    self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause))
         else:
             self.playButton.setIcon(
-                    self.style().standardIcon(QStyle.SP_MediaPlay))
+                    self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
 
     def positionChanged(self, position):
         self.positionSlider.setValue(position)
@@ -123,4 +123,4 @@ if __name__ == '__main__':
     player = VideoWindow()
     player.resize(640, 480)
     player.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
