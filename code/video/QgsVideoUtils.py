@@ -9,6 +9,7 @@ from QGIS_FMV.utils.QgsFmvUtils import (GetImageWidth,
                                         GetGCPGeoTransform,
                                         GetGeotransform_affine)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
+from math import isfinite
 from osgeo import gdal
 import numpy as np
 try:
@@ -32,39 +33,52 @@ class VideoUtils(object):
         except ZeroDivisionError:
             return 0.0
 
+    # A degenerate homography sends points to infinity. These screen
+    # coordinates are far outside any video widget but still fit in the 32 bit
+    # integers QPoint and QPainter are limited to.
+    OFFSCREEN = 1000000
+
+    @staticmethod
+    def ToScreenInt(value):
+        ''' int() that survives inf and nan, clamped to a paintable range. '''
+        try:
+            value = float(value)
+        except (TypeError, ValueError):
+            return VideoUtils.OFFSCREEN
+        if not isfinite(value):
+            return VideoUtils.OFFSCREEN if value > 0 else -VideoUtils.OFFSCREEN
+        if value > VideoUtils.OFFSCREEN:
+            return VideoUtils.OFFSCREEN
+        if value < -VideoUtils.OFFSCREEN:
+            return -VideoUtils.OFFSCREEN
+        return int(value)
+
     @staticmethod
     def GetInverseMatrix(x, y, gt, surface):
         ''' inverse matrix transformation (lon-lat to video units x,y) '''
         gt = GetGCPGeoTransform()
         #return gt([(event.position().x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)])
         #worldpoint = [(event.position().x() - VideoUtils.GetXBlackZone(surface)) * VideoUtils.GetXRatio(surface), (event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface), 1]
-        imagepoint = np.array(np.dot(np.linalg.inv(gt), [x, y, 1]))
+        if gt is None:
+            return VideoUtils.OFFSCREEN, VideoUtils.OFFSCREEN
+
+        try:
+            imagepoint = np.array(np.dot(np.linalg.inv(gt), [x, y, 1]))
+        except np.linalg.LinAlgError:
+            return VideoUtils.OFFSCREEN, VideoUtils.OFFSCREEN
+
         scalar = imagepoint[2]
+        if not scalar:
+            return VideoUtils.OFFSCREEN, VideoUtils.OFFSCREEN
+
         ximage = imagepoint[0]/scalar
         yimage = imagepoint[1]/scalar
         scr_x = (ximage / VideoUtils.GetXRatio(surface)) + \
             VideoUtils.GetXBlackZone(surface)
         scr_y = (yimage / VideoUtils.GetYRatio(surface)) + \
             VideoUtils.GetYBlackZone(surface)
-        
-        ret_x, ret_y = 0, 0
-        
-        try:
-            ret_x = int(scr_x)
-            ret_y = int(scr_y)
-        except OverflowError:
 
-            if scr_x >= 0:
-                ret_x = sys.maxint
-            if scr_x < 0:
-                ret_x = -sys.maxint-1
-            if scr_y >= 0:
-                ret_y = sys.maxint
-            if scr_y < 0:
-                ret_y = -sys.maxint-1
-
-            qgsu.showUserAndLogMessage("", "Treated overflow error x: " + str(ret_x) + " y:" + str(ret_y), onlyLog=True)
-        return ret_x, ret_y
+        return VideoUtils.ToScreenInt(scr_x), VideoUtils.ToScreenInt(scr_y)
         
         #transf = (~gt)([x, y])
         #scr_x = (transf[0] / VideoUtils.GetXRatio(surface)) + \
@@ -193,6 +207,18 @@ class VideoUtils(object):
         y=(event.position().y() - VideoUtils.GetYBlackZone(surface)) * VideoUtils.GetYRatio(surface)
         x1, y1 = gdal.ApplyGeoTransform(gt, x, y)
         return [y1, x1]
+
+    @staticmethod
+    def IsValidLonLat(longitude, latitude):
+        ''' True when the pair is inside the WGS84 domain and finite. '''
+        try:
+            longitude = float(longitude)
+            latitude = float(latitude)
+        except (TypeError, ValueError):
+            return False
+        if not (isfinite(longitude) and isfinite(latitude)):
+            return False
+        return -180.0 <= longitude <= 180.0 and -90.0 <= latitude <= 90.0
 
     @staticmethod
     def GetPointCommonCoords(event, surface):

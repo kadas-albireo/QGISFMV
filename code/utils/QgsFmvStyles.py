@@ -136,6 +136,13 @@ class FmvLayerStyles(object):
     P['INDAGO']['OUTLINE_WIDTH'] = '1'
     P['INDAGO']['SIZE'] = '70'
 
+    # Hermes 900 Platform
+    P['D-17'] = {}
+    P['D-17']['NAME'] = ':/imgFMV/images/platforms/plat_hermes900.svg'
+    P['D-17']['OUTLINE'] = '255, 255, 255, 60'
+    P['D-17']['OUTLINE_WIDTH'] = '1'
+    P['D-17']['SIZE'] = '70'
+
     #
     # FRAMECENTER POINT STYLES
     #
