@@ -1,4 +1,4 @@
-﻿  # -*- coding: utf-8 -*-
+  # -*- coding: utf-8 -*-
 from qgis.PyQt.QtGui import QColor, qRgba
 
 
@@ -135,6 +135,13 @@ class FmvLayerStyles(object):
     P['INDAGO']['OUTLINE'] = '255, 255, 25s5, 60'
     P['INDAGO']['OUTLINE_WIDTH'] = '1'
     P['INDAGO']['SIZE'] = '70'
+
+    # Hermes 900 Platform
+    P['D-17'] = {}
+    P['D-17']['NAME'] = ':/imgFMV/images/platforms/plat_hermes900.svg'
+    P['D-17']['OUTLINE'] = '255, 255, 255, 60'
+    P['D-17']['OUTLINE_WIDTH'] = '1'
+    P['D-17']['SIZE'] = '70'
 
     #
     # FRAMECENTER POINT STYLES

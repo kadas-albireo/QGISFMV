@@ -25,11 +25,22 @@
 
 from QGIS_FMV.klvdata.element import UnknownElement
 from QGIS_FMV.klvdata.klvparser import KLVParser
+from QGIS_FMV.klvdata.universalset import isFlatUniversalStream, splitFrames
 
 try:
     from pydevd import *
 except ImportError:
     None
+
+
+def _universalMetadataSet():
+    """Return the parser used for flat streams.
+
+    Imported on demand: misbEG0104 imports this module at load time, so it
+    cannot be imported here at module level.
+    """
+    from QGIS_FMV.klvdata.misbEG0104 import UAVBasicUniversalMetadataSet
+    return UAVBasicUniversalMetadataSet
 
 
 class StreamParser:
@@ -38,6 +49,13 @@ class StreamParser:
     def __init__(self, source):
         self.source = source
 
+        # Legacy pre 0601 streams carry no wrapping set: they are a flat run
+        # of universal elements, one run per video frame. Slice them up front
+        # and let __next__ hand each frame to the universal set parser.
+        self.flat_frames = None
+        if isinstance(source, (bytes, bytearray)) and isFlatUniversalStream(source, self.parsers):
+            self.flat_frames = iter(splitFrames(source))
+
         # All keys in parser are expected to be 16 bytes long.
         self.iter_stream = KLVParser(self.source, key_length=16)
 
@@ -45,6 +63,9 @@ class StreamParser:
         return self
 
     def __next__(self):
+        if self.flat_frames is not None:
+            return _universalMetadataSet()(next(self.flat_frames))
+
         key, value = next(self.iter_stream)
 #         qgsu.showUserAndLogMessage(
 #              "", "Streamparser key: " + str(key) + " value: " + str(value), onlyLog=True)

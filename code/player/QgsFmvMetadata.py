@@ -2,6 +2,7 @@
 import csv
 from qgis.PyQt.QtCore import Qt, QCoreApplication
 from qgis.PyQt.QtGui import (QFont,
+                             QPageSize,
                              QTextCursor,
                              QTextDocument,
                              QTextBlockFormat,
@@ -9,11 +10,16 @@ from qgis.PyQt.QtGui import (QFont,
                              QTextTableFormat,
                              QBrush,
                              QColor)
+from qgis.PyQt.QtGui import QGuiApplication, QKeySequence, QShortcut
 from qgis.PyQt.QtPrintSupport import QPrinter
-from qgis.PyQt.QtWidgets import QDockWidget
+from qgis.PyQt.QtWidgets import (QAbstractItemView,
+                                 QDockWidget,
+                                 QLineEdit,
+                                 QStyle,
+                                 QStyledItemDelegate)
 from qgis.core import Qgis as QGis, QgsTask, QgsApplication
 
-from PyQt5.QtGui import QTextFormat
+from qgis.PyQt.QtGui import QTextFormat
 
 from QGIS_FMV.gui.ui_FmvMetadata import Ui_FmvMetadata
 from QGIS_FMV.utils.QgsFmvUtils import askForFiles, _seconds_to_time, BurnDrawingsImage
@@ -25,6 +31,34 @@ except ImportError:
     None
 
 
+class MetadataValueDelegate(QStyledItemDelegate):
+    ''' Read only cells that can still be selected and copied.
+
+        The metadata table is a report, so the hover highlight drawn by the
+        native style is dropped: it only adds noise. A double click opens a
+        read only line edit instead of a real editor, which is what makes a
+        value selectable with the mouse and copyable with Ctrl+C.
+    '''
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        option.state &= ~QStyle.StateFlag.State_MouseOver
+
+    def createEditor(self, parent, option, index):
+        editor = QLineEdit(parent)
+        editor.setReadOnly(True)
+        editor.setFrame(False)
+        return editor
+
+    def setEditorData(self, editor, index):
+        editor.setText(index.data(Qt.ItemDataRole.DisplayRole) or "")
+        editor.selectAll()
+
+    def setModelData(self, editor, model, index):
+        # the table mirrors the stream, it is never written back
+        return
+
+
 class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
     """ Metadata Class Reports """
 
@@ -33,6 +67,34 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
         super().__init__()
         self.setupUi(self)
         self.player = player
+        self.setupMetadataTable()
+
+    def setupMetadataTable(self):
+        ''' Selectable and copyable cells, and no hover colour. '''
+        table = self.VManager
+        self.valueDelegate = MetadataValueDelegate(table)
+        table.setItemDelegate(self.valueDelegate)
+        table.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectItems)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        self.copyShortcut = QShortcut(QKeySequence.StandardKey.Copy, table)
+        self.copyShortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+        self.copyShortcut.activated.connect(self.copySelectionToClipboard)
+
+    def copySelectionToClipboard(self):
+        ''' Copy the selected cells, tab separated, one line per row. '''
+        cells = {}
+        for index in self.VManager.selectedIndexes():
+            cells.setdefault(index.row(), {})[index.column()] = index.data(
+                Qt.ItemDataRole.DisplayRole) or ""
+        if not cells:
+            return
+        lines = []
+        for row in sorted(cells):
+            columns = cells[row]
+            lines.append("\t".join(columns[c] for c in sorted(columns)))
+        QGuiApplication.clipboard().setText("\n".join(lines))
 
     def finishedTask(self, e, result=None):
         """ Common finish task function """
@@ -89,19 +151,19 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
     def CreatePDF(self, task, out, timestamp, data, frame, rows, columns, fileName, VManager):
         ''' Create PDF QgsTask '''
 
-        font_normal = QFont("Helvetica", 8, QFont.Normal)
-        font_bold = QFont("Helvetica", 9, QFont.Bold)
+        font_normal = QFont("Helvetica", 8, QFont.Weight.Normal)
+        font_bold = QFont("Helvetica", 9, QFont.Weight.Bold)
 
-        printer = QPrinter(QPrinter.HighResolution)
-        printer.setOutputFormat(QPrinter.PdfFormat)
+        printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
 
-        printer.setPageSize(QPrinter.A4)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
         printer.setOutputFileName(out)
         printer.setFullPage(True)
 
         document = QTextDocument()
         document.setDefaultFont(font_normal)
-        document.setPageSize(printer.paperSize(QPrinter.Point))
+        document.setPageSize(printer.pageLayout().pageSize().size(QPageSize.Unit.Point))
 
         cursor = QTextCursor(document)
         video_t = QCoreApplication.translate("QgsFmvMetadata", "Video : ")
@@ -121,8 +183,8 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
             % (video_t, fileName, time_t, timestamp))
 
         tableFormat = QTextTableFormat()
-        tableFormat.setBorderBrush(QBrush(Qt.black))
-        tableFormat.setAlignment(Qt.AlignHCenter)
+        tableFormat.setBorderBrush(QBrush(Qt.GlobalColor.black))
+        tableFormat.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         tableFormat.setHeaderRowCount(1)
         tableFormat.setCellPadding(2)
         tableFormat.setCellSpacing(2)
@@ -132,8 +194,8 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
         tableHeaderFormat = QTextCharFormat()
         tableHeaderFormat.setFont(font_bold)
         tableHeaderFormat.setBackground(QColor("#67b03a"))
-        tableHeaderFormat.setForeground(Qt.white)
-        tableHeaderFormat.setVerticalAlignment(QTextCharFormat.AlignMiddle)
+        tableHeaderFormat.setForeground(Qt.GlobalColor.white)
+        tableHeaderFormat.setVerticalAlignment(QTextCharFormat.VerticalAlignment.AlignMiddle)
 
         alternate_background = QTextCharFormat()
         alternate_background.setBackground(QColor("#DDE9ED"))
@@ -142,7 +204,7 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
             cursor.mergeBlockCharFormat(tableHeaderFormat)
             cursor.insertText(VManager.horizontalHeaderItem(
                 column).text())
-            cursor.movePosition(QTextCursor.NextCell)
+            cursor.movePosition(QTextCursor.MoveOperation.NextCell)
 
         row = 1
         for key in sorted(data.keys()):
@@ -152,21 +214,21 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
                 if (row) % 2 == 0:
                     cursor.mergeBlockCharFormat(alternate_background)
 
-                cursor.movePosition(QTextCursor.NextCell)
+                cursor.movePosition(QTextCursor.MoveOperation.NextCell)
             row += 1
 
-        cursor.movePosition(QTextCursor.End)
+        cursor.movePosition(QTextCursor.MoveOperation.End)
 
         current_t = QCoreApplication.translate("QgsFmvMetadata", "Current Frame")
 
-        self.TextBlockCenter(cursor, TextFormat=QTextFormat.PageBreak_AlwaysBefore)
+        self.TextBlockCenter(cursor, TextFormat=QTextFormat.PageBreakFlag.PageBreak_AlwaysBefore)
 
         cursor.insertHtml("""
                           <br><p style='text-align: center;'><strong>""" + current_t + """</strong></p><br>
                           """)
 
         self.TextBlockCenter(cursor)
-        cursor.insertImage(frame.scaledToWidth(500, Qt.SmoothTransformation))
+        cursor.insertImage(frame.scaledToWidth(500, Qt.TransformationMode.SmoothTransformation))
 
         document.print_(printer)
 
@@ -174,10 +236,10 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
             return None
         return {'task': task.description()}
 
-    def TextBlockCenter(self, cursor, TextFormat=QTextFormat.PageBreak_Auto):
+    def TextBlockCenter(self, cursor, TextFormat=QTextFormat.PageBreakFlag.PageBreak_Auto):
         """ Return  QTextBlockFormat object align center """
         centerFormat = QTextBlockFormat()
-        centerFormat.setAlignment(Qt.AlignHCenter)
+        centerFormat.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         centerFormat.setPageBreakPolicy(TextFormat)
         cursor.insertBlock(centerFormat)
         return
@@ -210,7 +272,7 @@ class QgsFmvMetadata(QDockWidget, Ui_FmvMetadata):
             # 3 Columns always
             for column in range(VManager.columnCount()):
                 headers.append(VManager.model(
-                ).headerData(column, Qt.Horizontal))
+                ).headerData(column, Qt.Orientation.Horizontal))
 
             writer = csv.DictWriter(stream, fieldnames=headers)
             writer.writeheader()

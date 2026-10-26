@@ -3,26 +3,27 @@ import ast
 from configparser import ConfigParser
 import os
 from os.path import dirname, abspath
-from qgis.PyQt.Qt  import QSettings, pyqtSlot, QEvent, Qt, QCoreApplication, QPoint
-from qgis.PyQt.QtGui import QIcon
-from qgis.PyQt.QtCore import QUrl, QTimer
+from qgis.PyQt.QtGui import QIcon, QAction
+from qgis.PyQt.QtCore import QUrl, QTimer, pyqtSlot, QCoreApplication, QEvent, QPoint, QSettings, Qt
 from qgis.PyQt.QtWidgets import (QDockWidget,
                                  QTableWidgetItem,
-                                 QAction,
                                  QMenu,
                                  QProgressBar,
+                                 QStyle,
+                                 QStyledItemDelegate,
                                  QVBoxLayout,
                                  QWidget)
 import qgis.utils
+from qgis.core import Qgis
 
-from PyQt5.QtGui import QColor
+from qgis.PyQt.QtGui import QColor, QBrush
 
 from QGIS_FMV.player.QgsFmvDrawToolBar import DrawToolBar as draw
 from QGIS_FMV.converter.ffmpeg import FFMpeg
 from QGIS_FMV.gui.ui_FmvManager import Ui_ManagerWindow
 from QGIS_FMV.manager.QgsMultiplexor import Multiplexor
 from QGIS_FMV.manager.QgsFmvOpenStream import OpenStream
-from QGIS_FMV.player.QgsFmvPlayer import QgsFmvPlayer, QMediaContent
+from QGIS_FMV.player.QgsFmvPlayer import QgsFmvPlayer
 from QGIS_FMV.utils.QgsFmvUtils import (askForFiles,
                                         BufferedMetaReader,
                                         StreamMetaReader,
@@ -34,10 +35,10 @@ from QGIS_FMV.utils.QgsFmvUtils import (askForFiles,
                                         getVideoManagerList,
                                         getNameSpace,
                                         getKlvStreamIndex,                  
-                                        getVideoLocationInfo)
+                                        getVideoLocationInfo,
+                                        requestReverseGeocoding)
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
 from qgis.core import QgsPointXY, QgsCoordinateReferenceSystem, QgsProject, QgsCoordinateTransform, Qgis as QGis
-from PyQt5.QtMultimedia import QMediaPlaylist
 
 
 try:
@@ -48,6 +49,106 @@ except ImportError:
 s = QSettings()
 parser = ConfigParser()
 parser.read(os.path.join(dirname(dirname(abspath(__file__))), 'settings.ini'))
+
+
+def pluginVersion():
+    ''' Plugin version, read from metadata.txt. '''
+    metadata = ConfigParser(interpolation=None)
+    try:
+        metadata.read(os.path.join(dirname(dirname(abspath(__file__))), 'metadata.txt'),
+                      encoding='utf-8')
+        return metadata.get('general', 'version', fallback='')
+    except Exception:
+        return ''
+
+
+class RowHoverDelegate(QStyledItemDelegate):
+    ''' Paints the whole row under the mouse with a light gray background. '''
+
+    def __init__(self, parent=None, color=QColor(235, 235, 235)):
+        super().__init__(parent)
+        self._row = -1
+        self._brush = QBrush(color)
+
+    def hoveredRow(self):
+        return self._row
+
+    def setHoveredRow(self, row):
+        self._row = row
+
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        # drop the per cell hover drawn by the native style: the row
+        # highlight below replaces it
+        option.state &= ~QStyle.StateFlag.State_MouseOver
+        if index.row() == self._row and not (option.state & QStyle.StateFlag.State_Selected):
+            option.backgroundBrush = self._brush
+
+
+class QMediaPlaylist:
+    """
+    Drop in replacement for Qt 5 QMediaPlaylist
+    this is not a 1-to-1 remplacement, the philosophy:
+    * A minimalistic approch is used to only implement methods as needed
+    * as some api like QMediaContent have been removed and are remplaced here
+    """
+
+    def __init__(self):
+        self._index = -1
+        self._medias = []
+
+    def setCurrentIndex(self, index):
+        if index < 0 or index >= self.mediaCount():
+            self._index = -1
+        
+        self._index = index
+
+    def addMedia(self, mediaUrl):
+        self._medias.append(mediaUrl)
+
+    def setMedia(self, idx, mediaUrl):
+        if 0 <= idx < len(self._medias):
+            self._medias[idx] = mediaUrl
+
+    def removeMedia(self, idx):
+        if idx <= self._index:
+            self._index -= 1 
+        self._medias.pop(idx)
+
+    def mediaCount(self):
+        return len(self._medias)
+    
+    def media(self, idx):
+        return self._medias[idx]
+
+    def currentIndex(self):
+        return self._index
+    
+    def nextIndex(self):
+        if self._index == -1:
+            return -1  
+        r = self._index + 1
+        if 0 <= r < self.mediaCount():
+            return r
+        return -1
+
+    def next(self):
+        try:
+            return self._medias[self._index + 1]
+        except:
+            return None
+        
+    def isFileInPlaylist(self, filename):
+        for x in range(self.mediaCount()):
+            try:
+                if filename in self.media(x).toString():
+                    return True
+            except:
+                if filename in self.media(x).toString():
+                    return True
+        return False
+    
+
 
 class FmvManager(QWidget, Ui_ManagerWindow):
     ''' Video Manager '''
@@ -69,8 +170,17 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.buf_interval = 2000
         self.update_interval = 2000
         self.loading = False
+        self.disposed = False
+        self.geocodeReplies = []
         self.playlist = QMediaPlaylist()
         self.VManager.viewport().installEventFilter(self)
+
+        self.versionLabel.setText("v " + pluginVersion())
+
+        self.rowHoverDelegate = RowHoverDelegate(self.VManager)
+        self.VManager.setItemDelegate(self.rowHoverDelegate)
+        self.VManager.setMouseTracking(True)
+        self.VManager.viewport().setMouseTracking(True)
 
         # Context Menu
         self.VManager.customContextMenuRequested.connect(self.__context_menu)
@@ -83,13 +193,15 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.VManager.setColumnWidth(3, 250)
         self.VManager.setColumnWidth(4, 150)
         self.VManager.setColumnWidth(5, 130)                                    
-        self.VManager.verticalHeader().setDefaultAlignment(Qt.AlignHCenter)
+        self.VManager.verticalHeader().setDefaultAlignment(Qt.AlignmentFlag.AlignHCenter)
         self.VManager.hideColumn(0)
         
         self.videoPlayable = []
         self.videoIsStreaming = []
         
-        self.dtm_path = parser['GENERAL']['DTM_file']
+        # optional: the elevation model is normally the project heightmap,
+        # dtm_file is only the fallback for a project without one
+        self.dtm_path = parser.get('GENERAL', 'DTM_file', fallback='')
 
         draw.setValues()
         self.setAcceptDrops(True)            
@@ -115,9 +227,21 @@ class FmvManager(QWidget, Ui_ManagerWindow):
                     self.AddFileRowToManager(name, filename, load_id)
                                         
     
+    def setHoveredRow(self, row):
+        ''' Repaint only when the hovered row actually changes. '''
+        if row != self.rowHoverDelegate.hoveredRow():
+            self.rowHoverDelegate.setHoveredRow(row)
+            self.VManager.viewport().update()
+
     def eventFilter(self, source, event):
         ''' Event Filter '''
-        if (event.type() == QEvent.MouseButtonPress and source is self.VManager.viewport() and self.VManager.itemAt(event.pos()) is None):
+        if source is self.VManager.viewport():
+            if event.type() == QEvent.Type.MouseMove:
+                index = self.VManager.indexAt(event.position().toPoint())
+                self.setHoveredRow(index.row() if index.isValid() else -1)
+            elif event.type() == QEvent.Type.Leave:
+                self.setHoveredRow(-1)
+        if (event.type() == QEvent.Type.MouseButtonPress and source is self.VManager.viewport() and self.VManager.itemAt(event.position().toPoint()) is None):
             self.VManager.clearSelection()
         return QDockWidget.eventFilter(self, source, event)
 
@@ -128,7 +252,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             return
         menu = QMenu()
         menu.addAction(self.removeAct)
-        menu.exec_(self.VManager.mapToGlobal(position))
+        menu.exec(self.VManager.mapToGlobal(position))
 
     def remove(self):
         ''' Remove current row ''' 
@@ -170,6 +294,56 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             self.playlist.removeMedia(idx)
 
     
+    def requestLocationName(self, row_id, location):
+        ''' Fill the location column once the geocoding answer arrives. '''
+        def onResult(text):
+            if self.disposed or not text or text == "-":
+                return
+            row = self.rowFromId(row_id)
+            if row is not None:
+                self.VManager.setItem(row, 4, QTableWidgetItem(text))
+
+        reply = requestReverseGeocoding(location[0], location[1], onResult)
+        if reply is not None:
+            self.geocodeReplies.append(reply)
+            reply.finished.connect(
+                lambda: self.geocodeReplies.remove(reply)
+                if reply in self.geocodeReplies else None)
+
+    def rowFromId(self, row_id):
+        ''' Rows move when one is removed, so look the video up by its id. '''
+        for row in range(self.VManager.rowCount()):
+            item = self.VManager.item(row, 0)
+            if item is not None and item.text() == str(row_id):
+                return row
+        return None
+
+    def dispose(self):
+        ''' Release what would otherwise outlive the widget: the player,
+            the ffmpeg reader threads and the pending network replies.
+        '''
+        self.disposed = True
+
+        for reply in list(self.geocodeReplies):
+            try:
+                reply.abort()
+                reply.deleteLater()
+            except Exception:
+                pass
+        self.geocodeReplies = []
+
+        self.closePlayer()
+        if self._PlayerDlg is not None:
+            self._PlayerDlg.deleteLater()
+            self._PlayerDlg = None
+
+        for reader in self.meta_reader:
+            try:
+                reader.dispose()
+            except Exception:
+                pass
+        self.meta_reader = []
+
     def closePlayer(self):
         ''' Close FMV '''
         try:
@@ -192,15 +366,15 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     def openStreamDialog(self):
         ''' Open Stream Dialog '''
         self.OpenStream = OpenStream(self.iface, parent=self)
-        self.OpenStream.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
-        self.OpenStream.exec_()
+        self.OpenStream.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
+        self.OpenStream.exec()
         return
 
     def openMuiltiplexorDialog(self):
         ''' Open Multiplexor Dialog '''
         self.Muiltiplexor = Multiplexor(self.iface, parent=self, Exts=ast.literal_eval(parser.get("FILES", "Exts")))
-        self.Muiltiplexor.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
-        self.Muiltiplexor.exec_()
+        self.Muiltiplexor.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
+        self.Muiltiplexor.exec()
         return
 
     def AddFileRowToManager(self, name, filename, load_id=None, islocal=False, klv_folder=None):
@@ -263,7 +437,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
                 self.ToggleActiveRow(rowPosition, value="Missing source file")
                 for j in range(self.VManager.columnCount()):
                     try:
-                        self.VManager.item(rowPosition, j).setFlags(Qt.NoItemFlags | Qt.ItemIsEnabled)
+                        self.VManager.item(rowPosition, j).setFlags(Qt.ItemFlag.NoItemFlags | Qt.ItemFlag.ItemIsEnabled)
                         self.VManager.item(rowPosition, j).setBackground(QColor(211, 211, 211))
                     except Exception:
                         self.VManager.cellWidget(rowPosition, j).setStyleSheet("background-color:rgb(211,211,211);")
@@ -296,6 +470,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
                 else:
                     self.VManager.setItem(rowPosition, 4, QTableWidgetItem(
                         self.initialPt[rowPosition][2]))
+                    self.requestLocationName(row_id, self.initialPt[rowPosition])
                     pbar.setValue(90)
                     self.videoPlayable[rowPosition] = True
             except Exception:
@@ -312,16 +487,20 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         
         url = ""
         if self.videoIsStreaming[-1]:
-            # show video from splitter (port +1)
-            oldPort = filename.split(":")[2]
-            newPort = str(int(oldPort) + 10)                
-            proto = filename.split(":")[0]
-            url = QUrl(proto + "://127.0.0.1:" + newPort)
+            # play the leg the splitter re-emits, on the port it really
+            # obtained rather than an assumed source port + 10
+            url = QUrl(self.meta_reader[-1].playerUrl())
         else:
             url = QUrl.fromLocalFile(filename)
         
-        self.playlist.addMedia(QMediaContent(url))
         
+        if Qgis.QGIS_VERSION_INT < 40000:
+            # Remove once Kadas 2.3 is out of use
+            from qgis.PyQt.QtMultimedia import QMediaContent
+            self.playlist.addMedia(QMediaContent(url))
+        else:
+            self.playlist.addMedia(url)
+            
         if self.videoPlayable[rowPosition]:
             pbar.setValue(100)
             if islocal:
@@ -356,9 +535,19 @@ class FmvManager(QWidget, Ui_ManagerWindow):
     
     
     def isFileInPlaylist(self, filename):
-        mcount = self.playlist.mediaCount()
-        for x in range(mcount):
-            if filename in self.playlist.media(x).canonicalUrl().toString():
+        return self.playlist.isFileInPlaylist(filename)
+
+    def isSourceInManager(self, source):
+        ''' True when this exact source already has a row.
+
+            The playlist cannot answer this for a stream: what it holds is
+            the local leg the tee re-emits on, not the address the user
+            typed, and that local port changes from one open to the next.
+            Column 3 of the table keeps the source as it was given.
+        '''
+        for row in range(self.VManager.rowCount()):
+            item = self.VManager.item(row, 3)
+            if item is not None and item.text() == source:
                 return True
         return False
     
@@ -405,6 +594,14 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self.ToggleActiveRow(row)
         
         self.playlist.setCurrentIndex(row)
+
+        # closing the player kills the splitter; reopening the row has to
+        # restart it, and the local port it gets may differ from last time
+        reader = self.meta_reader[row] if row < len(self.meta_reader) else None
+        if isinstance(reader, StreamMetaReader):
+            if reader.ensureRunning():
+                qgsu.showUserAndLogMessage("", "Stream: splitter restarted.", onlyLog=True)
+            self.playlist.setMedia(row, QUrl(reader.playerUrl()))
         
         #qgsu.CustomMessage("QGIS FMV", path, self._PlayerDlg.fileName, icon="Information")
         #if path != self._PlayerDlg.fileName:
@@ -416,11 +613,13 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         #zoom to map zone     
         curAuthId =  self.iface.mapCanvas().mapSettings().destinationCrs().authid()
         
-        if self.initialPt[row][1] != None and self.initialPt[row][0] != None:
-            map_pos = QgsPointXY(self.initialPt[row][1], self.initialPt[row][0])
+        # a live stream has no start position and a video without metadata
+        # has an empty one; the map recentres itself on the first packet
+        initial = self.initialPt[row] if row < len(self.initialPt) else None
+        if initial and len(initial) > 1 and initial[0] is not None and initial[1] is not None:
+            map_pos = QgsPointXY(initial[1], initial[0])
             if curAuthId != "EPSG:4326":
-                trgCode=int(curAuthId.split(":")[1])
-                xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem(4326), QgsCoordinateReferenceSystem(trgCode), QgsProject().instance())
+                xform = QgsCoordinateTransform(QgsCoordinateReferenceSystem("EPSG:4326"), QgsCoordinateReferenceSystem(curAuthId), QgsProject().instance())
                 map_pos = xform.transform(map_pos)
                 
             self.iface.mapCanvas().setCenter(map_pos)
@@ -433,8 +632,8 @@ class FmvManager(QWidget, Ui_ManagerWindow):
         self._PlayerDlg = QgsFmvPlayer(self.iface, path, interval, parent=self, meta_reader=self.meta_reader[
             row], pass_time=self.pass_time, islocal=islocal, klv_folder=klv_folder)
                     
-        self._PlayerDlg.player.setPlaylist(self.playlist)
-        self._PlayerDlg.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint)
+        self._PlayerDlg.setPlaylist(self.playlist)
+        self._PlayerDlg.setWindowFlags(Qt.WindowType.Dialog | Qt.WindowType.WindowCloseButtonHint)
         self._PlayerDlg.show()
         self._PlayerDlg.activateWindow()
 
@@ -491,7 +690,7 @@ class FmvManager(QWidget, Ui_ManagerWindow):
             e.acceptProposedAction()
         #Ignore and stop propagation
         else:
-            e.setDropAction(Qt.IgnoreAction)
+            e.setDropAction(Qt.DropAction.IgnoreAction)
             e.accept()
 
     def dropEvent(self, e):

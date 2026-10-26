@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os.path
+from time import monotonic
 from qgis.PyQt.QtCore import (QUrl,
                               QPoint,
                               QCoreApplication,
@@ -8,7 +9,7 @@ from qgis.PyQt.QtCore import (QUrl,
                               pyqtSignal,
                               QEvent,
                               QObject)
-from qgis.PyQt.QtGui import QIcon, QMovie
+from qgis.PyQt.QtGui import QIcon, QMovie, QGuiApplication
 from qgis.PyQt.QtWidgets import (QToolTip,
                                  QMessageBox,
                                  QAbstractSlider,
@@ -23,9 +24,13 @@ from qgis.PyQt.QtWidgets import (QToolTip,
                                  QApplication,
                                  QTableWidgetItem,
                                  QToolBar)
-from qgis.core import Qgis as QGis, QgsTask, QgsApplication, QgsRasterLayer, QgsProject, QgsLayerTreeGroup
+from qgis.core import (Qgis as QGis, QgsTask, QgsApplication, QgsRasterLayer,
+                       QgsProject, QgsLayerTreeGroup, QgsPointXY,
+                       QgsCoordinateTransform, QgsCoordinateReferenceSystem)
 
-from PyQt5.QtMultimedia import QMediaPlayer, QMediaContent
+from qgis.PyQt.QtMultimedia import QMediaPlayer
+
+from qgis.PyQt.QtMultimedia import QAudioOutput
 
 from QGIS_FMV.converter.Converter import Converter
 from QGIS_FMV.gui.ui_FmvPlayer import Ui_PlayerWindow
@@ -49,7 +54,9 @@ from QGIS_FMV.utils.QgsFmvUtils import (callBackMetadataThread,
                                         askForFiles,
                                         askForFolder,
                                         setCenterMode,
-                                        GetGeotransform_affine)
+                                        GetGCPGeoTransform,
+                                        GetGeotransform_affine,
+                                        StreamMetaReader)
 from QGIS_FMV.utils.QgsJsonModel import QJsonModel
 from QGIS_FMV.utils.QgsPlot import CreatePlotsBitrate, ShowPlot
 from QGIS_FMV.utils.QgsUtils import QgsUtils as qgsu
@@ -70,6 +77,20 @@ except Exception as e:
     qgsu.showUserAndLogMessage(QCoreApplication.translate(
         "VideoProcessor", "Error: Missing OpenCV packages"))
 
+
+# Ui_PlayerWindow, _ = loadUiType(os.path.join(os.path.dirname(__file__), "../ui", "ui_FmvPlayer.ui"))
+
+# How often a live stream is allowed to refresh what the user sees: the
+# metadata table and the map layers alike.
+# A file is read through BufferedMetaReader, which rounds the position to
+# a one second bucket and therefore answers with the same metadata for a
+# whole second, so both only really change once a second. A stream answers
+# with the packet closest to now, so every position notification carries a
+# different packet and everything would be redrawn about ten times a
+# second.
+STREAM_REFRESH_SECONDS = 1.0
+
+
 class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     """ Video Player Class """
         
@@ -82,13 +103,20 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.iface = iface
         self.fileName = path
         self.meta_reader = meta_reader
-        self.isStreaming = False
+        self.isStreaming = isinstance(meta_reader, StreamMetaReader)
+        self.initialZoomDone = False
+        self._lastStreamRefresh = 0.0
+        self._controlToolTips = [(w, w.toolTip()) for w in (
+            self.btn_rewind, self.btn_forward, self.btn_play, self.btn_stop,
+            self.actionMeasureDistance, self.actionMeasureArea,
+            self.actionShow_Video_Info, self.actionSave_Video_Info)]
         self.islocal = islocal
         self.klv_folder = klv_folder
         self.createingMosaic = False
         self.currentInfo = 0.0
         self.data = None
         self.staticDraw = False
+        self._drawingEnabled = True
         self.playbackRateSlow = 0.7
         self.closing = False
         # Create Draw Toolbar
@@ -150,11 +178,13 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.playerMuted = False
         self.HasFileAudio = False
 
-        self.player = QMediaPlayer(None, QMediaPlayer.VideoSurface)
+        self.player = QMediaPlayer(None)
+        self.audioOutput = QAudioOutput()
+        self.player.setAudioOutput(self.audioOutput)
         self.pass_time = pass_time
-        self.player.setNotifyInterval(interval)  # Player update interval
+        # self.player.setNotifyInterval(interval)  # Player update interval
         
-        self.player.setVideoOutput(
+        self.player.setVideoSink(
             self.videoWidget.videoSurface())  # Abstract Surface
 
         self.player.durationChanged.connect(self.durationChanged)
@@ -162,12 +192,12 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.player.mediaStatusChanged.connect(self.statusChanged)
         self.player.playbackRateChanged.connect(self.rateChanged)
         
-        self.player.currentMediaChanged.connect(self.currentMediaChanged)
+        self.player.sourceChanged.connect(self.sourceChanged)
         
 
-        self.player.stateChanged.connect(self.setCurrentState)
+        self.player.playbackStateChanged.connect(self.setCurrentState)
 
-        self.playerState = QMediaPlayer.LoadingMedia
+        self.playerState = QMediaPlayer.PlaybackState.StoppedState
         
         #self.playFile(path, self.islocal, self.klv_folder)
         qgsu.showUserAndLogMessage("", "Init Duration is:. "+str(self.player.duration()), onlyLog=True)
@@ -178,11 +208,11 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.sliderDuration.mousePressed.connect(self.sliderDurationPressed)
         self.volumeSlider.mousePressed.connect(self.setVolume)
         
-        self.volumeSlider.setValue(self.player.volume())
+        self.volumeSlider.setValue(int(self.player.audioOutput().volume() * 100))
         self.volumeSlider.enterEvent = self.showVolumeTip
 
         self.metadataDlg = QgsFmvMetadata(player=self)
-        self.addDockWidget(Qt.RightDockWidgetArea, self.metadataDlg)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.metadataDlg)
         self.metadataDlg.setMinimumWidth(500)
         self.metadataDlg.hide()
 
@@ -197,15 +227,20 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             setCenterMode(3, self.iface)
         
         #disable context menu
-        self.menubarwidget.setContextMenuPolicy(Qt.NoContextMenu)
+        self.menubarwidget.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         #disable toolbar floating around main window
         self.DrawToolBar.setFloatable(False) 
         
         # Defalut WGS 84/ World Mercator (3D)
-        # QgsProject.instance().setCrs(QgsCoordinateReferenceSystem(3395))
+        # QgsProject.instance().setCrs(QgsCoordinateReferenceSystem("EPSG:3395"))
       
     def setMetaReader(self, meta_reader):
         self.meta_reader = meta_reader
+        # the player instance is reused across manager rows, so the mode
+        # has to follow the reader: a live stream is served from a ring
+        # buffer instead of being re-read for every frame
+        self.isStreaming = isinstance(meta_reader, StreamMetaReader)
+        self.applyStreamingControls()
         
     def centerMapPlatform(self, checked):
         ''' Center map on Platform
@@ -328,7 +363,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             # qgsu.showUserAndLogMessage(QCoreApplication.translate("QgsFmvPlayer", "Metadata Buffer Failed! : "), str(inst))
     
     def resumePlay(self, state):
-        if state == QMediaPlayer.PlayingState: 
+        if state == QMediaPlayer.PlaybackState.PlayingState: 
             self.player.play()
         
     def packetStreamParser(self, stdout_data):
@@ -336,6 +371,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type stdout_data: String
         @param stdout_data: Binary data
         '''
+        if not self.streamRefreshDue():
+            return
         for packet in StreamParser(stdout_data):
             #try:
             if isinstance(packet, UnknownElement):
@@ -349,6 +386,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             #try:
             #Exit when the first correct packet has been drawn successfully.
             res = UpdateLayers(packet, parent=self, mosaic=self.createingMosaic, group=self.fileName)
+            self.setDrawingEnabled(GetGCPGeoTransform() is not None)
+            self.zoomToFirstPacket(packet)
             if res:
                 #qgsu.showUserAndLogMessage("", "Updating layer for Precision Time Stamp:"+ str(self.data[2]))
                 #for key, value in self.data.items():
@@ -365,6 +404,55 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             #except Exception as e:
             #    qgsu.showUserAndLogMessage("", "QgsFmvPlayer packetStreamParser failed! : " + str(e), onlyLog=True)
 
+    def streamRefreshDue(self):
+        ''' Whether a live stream may refresh the display now.
+
+            Always true for a file: it is read one second at a time, so
+            the reader answers with the same packet in between and the
+            display does not really change. A stream has a new packet on
+            every notification and is held to the same rate here. One gate
+            for the whole packet, so the table and the map always show the
+            same moment of the flight.
+        '''
+        if not self.isStreaming:
+            return True
+        now = monotonic()
+        if now - self._lastStreamRefresh < STREAM_REFRESH_SECONDS:
+            return False
+        self._lastStreamRefresh = now
+        return True
+
+    def zoomToFirstPacket(self, packet):
+        ''' Centre the map once, on a live stream's first known position.
+
+            A file gets this from the manager, which probes the start
+            location before playing. A stream has no position until the
+            first packet arrives, so it is done here instead, once per
+            playback and never afterwards so the user keeps control.
+        '''
+        if self.initialZoomDone or not self.isStreaming:
+            return
+        lat, lon = packet.FrameCenterLatitude, packet.FrameCenterLongitude
+        if lat is None or lon is None:
+            lat, lon = packet.SensorLatitude, packet.SensorLongitude
+        if lat is None or lon is None:
+            return
+        self.initialZoomDone = True
+        try:
+            canvas = self.iface.mapCanvas()
+            authid = canvas.mapSettings().destinationCrs().authid()
+            position = QgsPointXY(lon, lat)
+            if authid != "EPSG:4326":
+                xform = QgsCoordinateTransform(
+                    QgsCoordinateReferenceSystem("EPSG:4326"),
+                    QgsCoordinateReferenceSystem(authid), QgsProject.instance())
+                position = xform.transform(position)
+            canvas.setCenter(position)
+            canvas.zoomScale(50000)
+            qgsu.showUserAndLogMessage("", "Stream: map centred on the first packet.", onlyLog=True)
+        except Exception as e:
+            qgsu.showUserAndLogMessage("", "Stream: initial zoom failed: " + str(e), onlyLog=True)
+
     def callMetadataSync(self, currentTime, nextTime, klv_index=0):
         '''Metadata Sync Call
         @type currentTime: String
@@ -378,8 +466,10 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         fName = self.fileName
                     
         if self.isStreaming:
-            port = int(self.fileName.split(':')[2])
-            fName = self.fileName.replace(str(port), str(port + 1))
+            # a live source cannot be re-opened for a second read; the
+            # splitter already owns it and feeds the ring buffer
+            self.get_metadata_from_buffer()
+            return
         
         p = _spawn(cmds=['-i', fName ,
                                          '-ss', currentTime,
@@ -440,12 +530,29 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.metadataDlg.VManager.resizeColumnsToContents()
         self.metadataDlg.VManager.setVisible(True)
         self.metadataDlg.VManager.verticalScrollBar().setSliderPosition(self.sliderPosition)
+        self.restoreMetadataSelection()
 
     def clearMetadata(self):
         ''' Clear Metadata List '''
         try:
             self.sliderPosition = self.metadataDlg.VManager.verticalScrollBar().sliderPosition()
+            # the table is rebuilt on every frame, remember what the user
+            # had selected so a value can still be picked up and copied
+            self.metadataSelection = [(i.row(), i.column())
+                                      for i in self.metadataDlg.VManager.selectedIndexes()]
             self.metadataDlg.VManager.setRowCount(0)
+        except Exception:
+            None
+
+    def restoreMetadataSelection(self):
+        ''' Reselect the cells that were selected before the refresh. '''
+        try:
+            table = self.metadataDlg.VManager
+            for r, c in getattr(self, 'metadataSelection', []):
+                if r < table.rowCount() and c < table.columnCount():
+                    item = table.item(r, c)
+                    if item is not None:
+                        item.setSelected(True)
         except Exception:
             None
 
@@ -491,10 +598,12 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         
         if state != self.playerState:
             self.playerState = state
-            if state == QMediaPlayer.StoppedState:
+            # the media status may not change again, re-evaluate the cursor here
+            self.handleCursor(self.player.mediaStatus())
+            if state == QMediaPlayer.PlaybackState.StoppedState:
                 self.btn_play.setIcon(self.playIcon)
                 self.btn_stop.setEnabled(False)
-            elif state == QMediaPlayer.PausedState:
+            elif state == QMediaPlayer.PlaybackState.PausedState:
                 position = self.player.position()/1000
                 self.updateDurationInfo(position, True)
 
@@ -504,14 +613,14 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     def showColorDialog(self):
         ''' Show Color dialog '''
         self.ColorDialog = ColorDialog(parent=self)
-        self.ColorDialog.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+        self.ColorDialog.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
         # Fail if not uncheked
         self.actionMagnifying_glass.setChecked(False)
-        self.ColorDialog.exec_()
+        self.ColorDialog.exec()
         QApplication.processEvents()
         self.ColorDialog.contrastSlider.setValue(80)
         self.ColorDialog.contrastSlider.triggerAction(
-            QAbstractSlider.SliderMove)
+            QAbstractSlider.SliderAction.SliderMove)
         return
 
     def createMosaic(self, value):
@@ -534,7 +643,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             action.setChecked(toolbar.isVisible())
             action.setObjectName(toolbar.windowTitle())
             action.triggered.connect(lambda _: self.ToggleQToolBar())
-        menu.exec_(self.mapToGlobal(point))
+        menu.exec(self.mapToGlobal(point))
         return
 
     def ToggleQToolBar(self):
@@ -578,12 +687,12 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         #actionOptions.triggered.connect(self.OpenOptions)
         
         if not self.videoWidget.isFullScreen():
-            menu.exec_(self.mapToGlobal(point))
+            menu.exec(self.mapToGlobal(point))
         else:
-            scr = QApplication.desktop().screenNumber(self)
-            menu.exec_(QPoint(point.x() + scr * QApplication.desktop().screenGeometry(scr).width(), point.y()))
+            scr = QGuiApplication.screens().index(self.screen())
+            menu.exec(QPoint(point.x() + scr * self.screen().geometry().width(), point.y()))
     
-    def currentMediaChanged(self, media):
+    def sourceChanged(self, media):
    
         idx = self.parent.playlist.currentIndex()
                 
@@ -595,20 +704,22 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
                 QTimer.singleShot(300, lambda: self.player.setPosition(self.player.duration()))
                 return
             
-            if self.parent.initialPt[idx] and self.parent.dtm_path != '':
-                #init elevation model
-                try:
-                    initElevationModel(self.parent.initialPt[idx][0], self.parent.initialPt[idx][1], self.parent.dtm_path)
-                    qgsu.showUserAndLogMessage("", "Elevation model initialized.", onlyLog=True)
-                except Exception as e:
-                    qgsu.showUserAndLogMessage("", "Elevation model NOT initialized: "+str(e), onlyLog=True)
-                    None
+            # the project heightmap needs no start position, and a live
+            # stream has none: bind the model with whatever is known
+            initial = self.parent.initialPt[idx] if idx < len(self.parent.initialPt) else None
+            hasStart = bool(initial) and len(initial) > 1
+            try:
+                initElevationModel(initial[0] if hasStart else None,
+                                   initial[1] if hasStart else None,
+                                   self.parent.dtm_path)
+            except Exception as e:
+                qgsu.showUserAndLogMessage("", "Elevation model NOT initialized: "+str(e), onlyLog=True)
             
             #update filename
             self.fileName = self.parent.VManager.item(idx, 3).text()
             
             self.setWindowTitle(QCoreApplication.translate(
-                "QgsFmvPlayer", 'Playing : ') + os.path.basename(media.canonicalUrl().toString()))
+                "QgsFmvPlayer", 'Playing : ') + os.path.basename(media.toString()))
 
             self.parent.SetupPlayer(idx)
             
@@ -868,13 +979,13 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         '''
         qgsu.showUserAndLogMessage("", "CommonPauseTool:" + str(value), onlyLog=True)
         if value:
-            if self.playerState == QMediaPlayer.PlayingState:
+            if self.playerState == QMediaPlayer.PlaybackState.PlayingState:
                 self.pauseAt(self.player.position())
                 self.btn_play.setIcon(self.playIcon)
                 self.videoWidget.update()
         else:
-            if self.playerState in (QMediaPlayer.StoppedState,
-                                    QMediaPlayer.PausedState):
+            if self.playerState in (QMediaPlayer.PlaybackState.StoppedState,
+                                    QMediaPlayer.PlaybackState.PausedState):
                 self.player.play()
                 self.btn_play.setIcon(self.pauseIcon)
         QApplication.processEvents()
@@ -888,6 +999,39 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.videoWidget.SetCensure(value)
         self.videoWidget.UpdateSurface()
         return
+
+    def setDrawingEnabled(self, enabled):
+        ''' Enable or disable the tools that need map coordinates.
+            They all rely on the GCP geotransform, which is dropped when the
+            sensor looks too close to the horizon.
+        '''
+        if enabled == self._drawingEnabled:
+            return
+        self._drawingEnabled = enabled
+
+        actions = (self.actionDraw_Pinpoint,
+                   self.actionDraw_Line,
+                   self.actionDraw_Polygon,
+                   self.actionMeasureDistance,
+                   self.actionMeasureArea)
+
+        if not enabled:
+            for action in actions:
+                action.setChecked(False)
+            # setChecked() does not emit triggered(), so the interaction
+            # flags have to be cleared explicitly
+            self.videoWidget.RestoreDrawer()
+            self.videoWidget.UpdateSurface()
+
+        for action in actions:
+            action.setEnabled(enabled)
+
+        self.toolBtn_DPoint.setEnabled(enabled)
+        self.toolBtn_DLine.setEnabled(enabled)
+        self.toolBtn_DPolygon.setEnabled(enabled)
+        # the loop above re-armed the measure actions, the streaming rule
+        # has the last word
+        self.applyMeasureAvailability()
 
     def UncheckUtils(self, sender, value):
         ''' Uncheck Utils Video
@@ -939,18 +1083,20 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
     def isMuted(self):
         ''' Is muted video property'''
-        return self.playerMuted
+        return self.audioOutput.isMuted()
 
     def setMuted(self):
         ''' Muted video '''
-        if self.player.isMuted():
+        # in Qt6 mute and volume belong to QAudioOutput, not to QMediaPlayer
+        if self.audioOutput.isMuted():
             self.btn_volume.setIcon(QIcon(":/imgFMV/images/volume_up.png"))
-            self.player.setMuted(False)
+            self.audioOutput.setMuted(False)
             self.volumeSlider.setEnabled(True)
         else:
             self.btn_volume.setIcon(QIcon(":/imgFMV/images/volume_off.png"))
-            self.player.setMuted(True)
+            self.audioOutput.setMuted(True)
             self.volumeSlider.setEnabled(False)
+        self.playerMuted = self.audioOutput.isMuted()
         return
 
     def stop(self):
@@ -959,6 +1105,15 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         if self.actionMagnifying_glass.isChecked():
             self.actionMagnifying_glass.trigger()
         
+        if self.isStreaming:
+            # fakeStop() rewinds to position 0, which a live source cannot
+            # do; stop for real and let play() rejoin the live edge later
+            self.player.stop()
+            self.btn_play.setIcon(self.playIcon)
+            self.btn_stop.setEnabled(False)
+            self.videoWidget.update()
+            return
+
         # Stop Video        
         self.fakeStop()
         
@@ -973,7 +1128,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type volume: qreal
         @param volume: QSlider value
         '''
-        self.player.setVolume(volume)
+        self.audioOutput.setVolume(volume / 100)
         self.showVolumeTip(None)
         if 0 < volume <= 30:
             self.btn_volume.setIcon(QIcon(":/imgFMV/images/volume_30.png"))
@@ -998,6 +1153,64 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             self.videoWidget.update()
         return
 
+    def applyStreamingControls(self):
+        ''' A live stream has no transport controls.
+
+            Rewind, forward and the position slider all end up calling
+            setPosition(), which is meaningless on a live source: it
+            either does nothing or drops the connection. Start and stop
+            go the same way: a live source has no beginning to return to
+            and nothing to resume, it plays for as long as the tee feeds
+            it. All of them are greyed out.
+        '''
+        live = self.isStreaming
+        for widget in (self.btn_rewind, self.btn_forward, self.sliderDuration):
+            widget.setEnabled(not live)
+        self.btn_play.setEnabled(not live)
+        # playback enables and disables the stop button by itself, so it
+        # is only ever forced down here, never back up
+        if live:
+            self.btn_stop.setEnabled(False)
+        # both video info entries run ffprobe on the source address. On a
+        # live source that means binding the port the tee already reads, so
+        # they would steal datagrams from the picture and answer nothing.
+        self.actionShow_Video_Info.setEnabled(not live)
+        self.actionSave_Video_Info.setEnabled(not live)
+        self.applyMeasureAvailability()
+        tip = QCoreApplication.translate(
+            "QgsFmvPlayer", "Not available on a live stream")
+        for widget, original in self._controlToolTips:
+            widget.setToolTip(tip if live else original)
+
+    def applyMeasureAvailability(self):
+        ''' Measuring needs a scene that holds still.
+
+            A measurement is taken on the picture and converted through
+            the geotransform of the frame it was drawn on. A file can be
+            paused on that frame; a live stream cannot, the footprint has
+            moved under the measurement by the time it is finished. The
+            tools stay off for the whole stream.
+        '''
+        available = self._drawingEnabled and not self.isStreaming
+        if not available and (self.actionMeasureDistance.isChecked()
+                              or self.actionMeasureArea.isChecked()):
+            self.RemoveMeasures()
+        for action in (self.actionMeasureDistance, self.actionMeasureArea):
+            action.setEnabled(available)
+        self.toolBtn_Measure.setEnabled(available)
+
+    def resumeLive(self):
+        ''' Rejoin the live edge instead of replaying the buffered gap.
+
+            While paused the datagrams keep arriving; play() would carry on
+            from where the picture froze and fall further behind on every
+            pause. Re-setting the source drops what was buffered and
+            resubscribes at the current instant.
+        '''
+        self.player.stop()
+        self.player.setSource(self.currentMedia(self.fileName))
+        self.player.play()
+
     def forwardMedia(self):
         ''' Button forward Video '''
         forwardTime = int(self.player.position()) + 10 * 1000
@@ -1012,15 +1225,16 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             rewindTime = 0
         self.player.setPosition(rewindTime)
 
-    def AutoRepeat(self, checked):
-        '''Button AutoRepeat Video
-        @param checked: Button checked state
-        '''
-        if checked:
-            self.player.playlist.setPlaybackMode(QMediaPlaylist.Loop)
-        else:
-            self.player.playlist.setPlaybackMode(QMediaPlaylist.Sequential)
-        return
+    # Actually never connected to any signal 
+    # def AutoRepeat(self, checked):
+    #     '''Button AutoRepeat Video
+    #     @param checked: Button checked state
+    #     '''
+    #     if checked:
+    #         self.player.playlist.setPlaybackMode(QMediaPlaylist.Loop)
+    #     else:
+    #         self.player.playlist.setPlaybackMode(QMediaPlaylist.Sequential)
+    #     return
 
     def showVolumeTip(self, _):
         '''Volume Slider Tooltip Trick
@@ -1031,7 +1245,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.opt = QStyleOptionSlider()
         self.volumeSlider.initStyleOption(self.opt)
         rectHandle = self.style.subControlRect(
-            self.style.CC_Slider, self.opt, self.style.SC_SliderHandle)
+            self.style.ComplexControl.CC_Slider, self.opt, self.style.SubControl.SC_SliderHandle)
         self.tip_offset = QPoint(5, 15)
         pos_local = rectHandle.topLeft() + self.tip_offset
         pos_global = self.volumeSlider.mapToGlobal(pos_local)
@@ -1047,7 +1261,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.opt = QStyleOptionSlider()
         self.sliderDuration.initStyleOption(self.opt)
         rectHandle = self.style.subControlRect(
-            self.style.CC_Slider, self.opt, self.style.SC_SliderHandle)
+            self.style.ComplexControl.CC_Slider, self.opt, self.style.SubControl.SC_SliderHandle)
         self.tip_offset = QPoint(5, 15)
         pos_local = rectHandle.topLeft() + self.tip_offset
         pos_global = self.sliderDuration.mapToGlobal(pos_local)
@@ -1080,7 +1294,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         
         if not self.closing and not self.sliderDuration.isSliderDown():
             #show precise info if player is paused
-            if self.playerState == QMediaPlayer.PausedState:
+            if self.playerState == QMediaPlayer.PlaybackState.PausedState:
                 self.updateDurationInfo(progress / 1000, True)
             else:
                 self.updateDurationInfo(progress / 1000)
@@ -1089,7 +1303,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.seek(value)
                     
     def sliderDurationReleased(self):
-        if self.playerState == QMediaPlayer.PausedState:
+        if self.playerState == QMediaPlayer.PlaybackState.PausedState:
             self.updateDurationInfo(self.sliderDuration.value() / 1000, True)
     
     def updateDurationInfo(self, currentInfo, isPrecise=False):
@@ -1104,7 +1318,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
             totalTime = _seconds_to_time(duration)
             currentTime = _seconds_to_time(currentInfo)
-            tStr = currentTime + " / " + totalTime
+            tStr = (currentTime + " (LIVE)") if self.isStreaming \
+                else (currentTime + " / " + totalTime)
             currentTimeInfo = _seconds_to_time_frac(currentInfo)
 
             if self.isStreaming:
@@ -1137,10 +1352,13 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @type status: QMediaPlayer::MediaStatus
         @param status: Video status
         '''
-        if status in (QMediaPlayer.LoadingMedia,
-                      QMediaPlayer.BufferingMedia,
-                      QMediaPlayer.StalledMedia):
-            self.setCursor(Qt.BusyCursor)
+        busy = status in (QMediaPlayer.MediaStatus.LoadingMedia,
+                          QMediaPlayer.MediaStatus.BufferingMedia,
+                          QMediaPlayer.MediaStatus.StalledMedia)
+        # a paused player stops consuming its buffer, so the media status
+        # can stay on BufferingMedia forever and the busy cursor with it
+        if busy and self.player.playbackState() != QMediaPlayer.PlaybackState.PausedState:
+            self.setCursor(Qt.CursorShape.BusyCursor)
         else:
             self.unsetCursor()
 
@@ -1150,20 +1368,43 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @param status: Video status
         '''
         self.handleCursor(status)
-        if status is QMediaPlayer.LoadingMedia or status is QMediaPlayer.StalledMedia or status is QMediaPlayer.InvalidMedia:
+        if status is QMediaPlayer.MediaStatus.LoadingMedia or status is QMediaPlayer.MediaStatus.StalledMedia or status is QMediaPlayer.MediaStatus.InvalidMedia:
             self.videoAvailableChanged(False)
-        elif status == QMediaPlayer.InvalidMedia:
+        elif status == QMediaPlayer.MediaStatus.InvalidMedia:
             if len(self.player.errorString()) > 0:
                 qgsu.showUserAndLogMessage(QCoreApplication.translate(
                     "QgsFmvPlayer", "Player error: " + self.player.errorString()), level=QGis.Warning)
             qgsu.showUserAndLogMessage("", "invalid media", onlyLog=True)    
             self.videoAvailableChanged(False)
-        elif status == QMediaPlayer.EndOfMedia and self.parent.playlist.nextIndex() == -1:
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia and self.parent.playlist.nextIndex() == -1:
             #qgsu.showUserAndLogMessage("", "EndOfMedia and playlist end entred", onlyLog=False)
             self.videoAvailableChanged(False)
             self.fakeStop()
+        elif status == QMediaPlayer.MediaStatus.EndOfMedia:
+            self.player.setSource(self.parent.playlist.next())
+            self.player.play()
+            self.videoAvailableChanged(True)
         else:
             self.videoAvailableChanged(True)
+            # self.player.play()
+
+    def setPlaylist(self, playlist):
+        ''' Keep a reference on the manager playlist.
+            Playback is started by playFile(), not here.
+        '''
+        self.playlist = playlist
+
+    def currentMedia(self, videoPath):
+        ''' QUrl of the playlist entry being opened.
+            Falls back to the raw path when the playlist has no valid
+            current index.
+        '''
+        playlist = getattr(self.parent, 'playlist', None)
+        if playlist is not None:
+            index = playlist.currentIndex()
+            if 0 <= index < playlist.mediaCount():
+                return playlist.media(index)
+        return QUrl.fromLocalFile(videoPath)
 
     def playFile(self, videoPath, islocal=False, klv_folder=None):
         ''' Play file from path
@@ -1172,6 +1413,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         @param klv_folder: klv folder if video is created using multiplexor
         '''
         self.closing=False
+        self.initialZoomDone = False
+        self._lastStreamRefresh = 0.0
         self.islocal = islocal
         self.klv_folder = klv_folder
         try:
@@ -1180,18 +1423,27 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
             self.clearMetadata()
             QApplication.processEvents()
 
+            # basename() of rtp://host:port would leave just the port
+            title = videoPath if self.isStreaming else os.path.basename(videoPath)
             self.setWindowTitle(QCoreApplication.translate(
-                "QgsFmvPlayer", 'Playing : ') + os.path.basename(videoPath))
+                "QgsFmvPlayer", 'Playing : ') + title)
 
             CreateVideoLayers(hasElevationModel(), videoPath)
 
             self.HasFileAudio = True
-            if not self.HasAudio(videoPath):
+            # never probe a live source: ffprobe would bind the same UDP
+            # port as the splitter and block the GUI until it gives up
+            if not self.isStreaming and not self.HasAudio(videoPath):
                 self.actionAudio.setEnabled(False)
                 self.actionSave_Audio.setEnabled(False)
                 self.HasFileAudio = False
 
+            self.player.setSource(self.currentMedia(videoPath))
+
             self.playClicked(True)
+            # playClicked arms the transport buttons, put them back down
+            # when this is a live source
+            self.applyStreamingControls()
 
         except Exception as e:
             qgsu.showUserAndLogMessage(QCoreApplication.translate(
@@ -1265,6 +1517,8 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         # self.btn_Color.setEnabled(available)
         self.btn_CaptureFrame.setEnabled(available)
         self.gb_PlayerControls.setEnabled(available)
+        # if(available):
+        #     self.player.play()
         return
 
     def toggleGroup(self, state):
@@ -1290,7 +1544,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
     def fakeStop(self):
         '''self.player.stop() make a black screen and not reproduce it again'''
        
-        if self.playerState == QMediaPlayer.PausedState:
+        if self.playerState == QMediaPlayer.PlaybackState.PausedState:
             self.player.play()
             self.btn_play.setIcon(self.pauseIcon)
         
@@ -1312,17 +1566,21 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
 
     def playClicked(self, _):       
         ''' Stop and Play video '''
-        if self.playerState in (QMediaPlayer.StoppedState,
-                                QMediaPlayer.PausedState):
+        state = self.player.playbackState()
+        if state in (QMediaPlayer.PlaybackState.StoppedState,
+                     QMediaPlayer.PlaybackState.PausedState):
             self.btn_play.setIcon(self.pauseIcon)
-            self.btn_stop.setEnabled(True)
+            self.btn_stop.setEnabled(not self.isStreaming)
 
             if self.staticDraw:
                 self.RemoveMeasures()
 
             # Play Video
-            self.player.play()
-        elif self.playerState == QMediaPlayer.PlayingState:
+            if self.isStreaming:
+                self.resumeLive()
+            else:
+                self.player.play()
+        elif state == QMediaPlayer.PlaybackState.PlayingState:
             self.btn_play.setIcon(self.playIcon)
             self.pauseAt(self.player.position())
             
@@ -1470,7 +1728,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
                         QCoreApplication.translate("QgsFmvPlayer", "Information"),
                         QCoreApplication.translate("QgsFmvPlayer", "Do you want to load the layer?"),
                         icon="Information")
-                    if buttonReply == QMessageBox.Yes:
+                    if buttonReply == QMessageBox.StandardButton.Yes:
                         file = result['file']
                         root, _ = os.path.splitext(file)
                         layer = QgsRasterLayer(file, root)
@@ -1485,7 +1743,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         """ Extract All Video Frames Task """
         directory = askForFolder(self, QCoreApplication.translate(
             "QgsFmvPlayer", "Save all Frames"),
-            options=QFileDialog.DontResolveSymlinks | QFileDialog.ShowDirsOnly)
+            options=QFileDialog.Option.DontResolveSymlinks | QFileDialog.Option.ShowDirsOnly)
 
         if directory:
             taskExtractAllFrames = QgsTask.fromFunction('Save All Frames Task',
@@ -1553,7 +1811,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         position = str(self.player.position())
         directory = askForFolder(self, QCoreApplication.translate(
             "QgsFmvPlayer", "Save Current Georeferenced Frame"),
-            options=QFileDialog.DontResolveSymlinks | QFileDialog.ShowDirsOnly)
+            options=QFileDialog.Option.DontResolveSymlinks | QFileDialog.Option.ShowDirsOnly)
 
         if not directory:
             return
@@ -1608,18 +1866,19 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         """ Open Metadata Dock """
         if self.metadataDlg is None:
             self.metadataDlg = QgsFmvMetadata(player=self)
-            self.addDockWidget(Qt.RightDockWidgetArea, self.metadataDlg)
+            self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.metadataDlg)
             self.metadataDlg.show()
         else:
             self.metadataDlg.show()
 
+        self._lastStreamRefresh = monotonic()
         self.addMetadata(self.data)
         return
 
     def OpenOptions(self):
         """ Open Options Dialog """
         self.Options = FmvOptions()
-        self.Options.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
+        self.Options.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
         self.Options.show()
 
     def showVideoInfoDialog(self, outjson):
@@ -1632,7 +1891,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         view.setModel(model)
         model.loadJsonFromConsole(outjson)
 
-        self.VideoInfoDialog = QDialog(self, Qt.Window | Qt.WindowCloseButtonHint)
+        self.VideoInfoDialog = QDialog(self, Qt.WindowType.Window | Qt.WindowType.WindowCloseButtonHint)
         self.VideoInfoDialog.setWindowTitle(QCoreApplication.translate(
             "QgsFmvPlayer", "Video Information : ") + self.fileName)
         self.VideoInfoDialog.setWindowIcon(
@@ -1641,7 +1900,7 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         self.verticalLayout = QVBoxLayout(self.VideoInfoDialog)
         self.verticalLayout.addWidget(view)
         view.expandAll()
-        view.header().setSectionResizeMode(QHeaderView.ResizeToContents)
+        view.header().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
 
         self.VideoInfoDialog.resize(500, 400)
         self.VideoInfoDialog.show()
@@ -1671,24 +1930,51 @@ class QgsFmvPlayer(QMainWindow, Ui_PlayerWindow):
         #    event.ignore()
         #    return
         
+        # Closing a live stream held the interface for several seconds.
+        # Two things about that. The order below is deliberate: the tee is
+        # killed only once the player has let go of the socket, because
+        # tearing down a demuxer whose source has already gone silent is
+        # what makes a reader wait. And every step is timed into the log,
+        # so if a close ever feels slow again the log says which one it was
+        # instead of leaving it to guesswork.
+        timings = []
+        stepStarted = monotonic()
+
+        def step(label):
+            timings.append('%s %.2fs' % (label, monotonic() - stepStarted))
+
+        # Stop Video
+        self.stop()
+        step('stop')
+
+        if self.isStreaming:
+            # let go of the local socket while the tee is still feeding it
+            stepStarted = monotonic()
+            try:
+                self.player.setSource(QUrl())
+            except Exception:
+                None
+            step('release source')
+
         # Close splitter
         # If we don't close it and open a new video, the metadata shown are the old.
-        # TODO: NOT WORK
+        stepStarted = monotonic()
         try:
             self.meta_reader.dispose()
         except Exception:
             None
-        
-        # Stop Video
-        self.stop()
-        
-        #QTimer.singleShot(2500, lambda: self.resumePlay(oldState))    
-            
+        step('dispose reader')
+
         # Toggle Active flag in metadata dock
         self.parent.ToggleActiveFromTitle()
 
         # Remove All Data
+        stepStarted = monotonic()
         self.RemoveAllData()
+        step('remove data')
+        if self.isStreaming:
+            qgsu.showUserAndLogMessage('', 'Stream close: ' + ', '.join(timings),
+                                       onlyLog=True)
 
         # We close metadata dock if it's open
         try:

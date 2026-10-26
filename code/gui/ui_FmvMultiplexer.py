@@ -6,14 +6,14 @@
 #
 # WARNING! All changes made in this file will be lost!
 
-from PyQt5 import QtCore, QtGui, QtWidgets
+from qgis.PyQt import QtCore, QtGui, QtWidgets
 
 class Ui_VideoMultiplexer(object):
     def setupUi(self, VideoMultiplexer):
         VideoMultiplexer.setObjectName("VideoMultiplexer")
         VideoMultiplexer.resize(425, 402)
         icon = QtGui.QIcon()
-        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/multiplexer.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon.addPixmap(QtGui.QPixmap(":/imgFMV/images/multiplexer.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         VideoMultiplexer.setWindowIcon(icon)
         self.verticalLayout = QtWidgets.QVBoxLayout(VideoMultiplexer)
         self.verticalLayout.setObjectName("verticalLayout")
@@ -27,10 +27,10 @@ class Ui_VideoMultiplexer(object):
         self.ln_inputVideo.setObjectName("ln_inputVideo")
         self.horizontalLayout_4.addWidget(self.ln_inputVideo)
         self.btn_openVideo = QtWidgets.QPushButton(VideoMultiplexer)
-        self.btn_openVideo.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self.btn_openVideo.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         self.btn_openVideo.setText("")
         icon1 = QtGui.QIcon()
-        icon1.addPixmap(QtGui.QPixmap(":/imgFMV/images/opened-folder.png"), QtGui.QIcon.Normal, QtGui.QIcon.Off)
+        icon1.addPixmap(QtGui.QPixmap(":/imgFMV/images/opened-folder.png"), QtGui.QIcon.Mode.Normal, QtGui.QIcon.State.Off)
         self.btn_openVideo.setIcon(icon1)
         self.btn_openVideo.setObjectName("btn_openVideo")
         self.horizontalLayout_4.addWidget(self.btn_openVideo)
@@ -45,7 +45,7 @@ class Ui_VideoMultiplexer(object):
         self.ln_inputMeta.setObjectName("ln_inputMeta")
         self.horizontalLayout.addWidget(self.ln_inputMeta)
         self.btn_openCSV = QtWidgets.QPushButton(VideoMultiplexer)
-        self.btn_openCSV.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self.btn_openCSV.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         self.btn_openCSV.setText("")
         self.btn_openCSV.setIcon(icon1)
         self.btn_openCSV.setObjectName("btn_openCSV")
@@ -78,7 +78,7 @@ class Ui_VideoMultiplexer(object):
         self.horizontalLayout_3.addWidget(self.sp_vfov)
         self.verticalLayout.addWidget(self.widget_2)
         self.bt_createCSV = QtWidgets.QPushButton(VideoMultiplexer)
-        self.bt_createCSV.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self.bt_createCSV.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         self.bt_createCSV.setObjectName("bt_createCSV")
         self.verticalLayout.addWidget(self.bt_createCSV)
         self.gb_telemetry = QtWidgets.QGroupBox(VideoMultiplexer)
@@ -94,7 +94,7 @@ class Ui_VideoMultiplexer(object):
         self.verticalLayout.addWidget(self.gb_telemetry)
         self.bt_createMISB = QtWidgets.QPushButton(VideoMultiplexer)
         self.bt_createMISB.setEnabled(False)
-        self.bt_createMISB.setCursor(QtGui.QCursor(QtCore.Qt.PointingHandCursor))
+        self.bt_createMISB.setCursor(QtGui.QCursor(QtCore.Qt.CursorShape.PointingHandCursor))
         self.bt_createMISB.setObjectName("bt_createMISB")
         self.verticalLayout.addWidget(self.bt_createMISB)
 
